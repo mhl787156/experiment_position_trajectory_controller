@@ -35,12 +35,6 @@ find_package(simple_offboard_msgs REQUIRED)
 
 add_subdirectory(external/libInterpolate)
 
-add_executable(simple_offboard src/simple_offboard.cpp)
-ament_target_dependencies(simple_offboard
-  rclcpp std_msgs tf2 tf2_ros tf2_geometry_msgs std_srvs
-  geometry_msgs sensor_msgs mavros_msgs GeographicLib simple_offboard_msgs
-)
-
 add_executable(trajectory_handler src/trajectory.cpp)
 ament_target_dependencies(trajectory_handler
   rclcpp std_msgs std_srvs trajectory_msgs simple_offboard_msgs
@@ -66,7 +60,6 @@ install(DIRECTORY
 )
 
 install(TARGETS
-  simple_offboard
   trajectory_handler
   DESTINATION lib/${PROJECT_NAME}
 )
