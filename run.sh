@@ -8,4 +8,4 @@ else
     echo "VEHICLE_MAVLINK_SYSID not set, default to 1"
 fi
 
-ros2 launch simple_offboard starling_simple_offboard.launch.xml
+ros2 launch position_trajectory_controller starling_simple_offboard.launch.xml
