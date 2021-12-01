@@ -8,104 +8,7 @@
  * The above copyright notice and this permission notice shall be included in all
  * copies or substantial portions of the Software.
  */
-#include "rclcpp/rclcpp.hpp"
-
-#include <chrono>
-#include <memory>
-#include <boost/algorithm/string.hpp>
-#include <algorithm>
-#include <stdexcept>
-#include <thread>
-#include <atomic>
-
-#include <std_msgs/msg/empty.hpp>
-#include <std_srvs/srv/trigger.hpp>
-
-#include <trajectory_msgs/msg/joint_trajectory_point.hpp>
-#include <trajectory_msgs/msg/joint_trajectory.hpp>
-
-#include "simple_offboard_msgs/srv/set_position.hpp"
-#include "simple_offboard_msgs/srv/set_velocity.hpp"
-#include "simple_offboard_msgs/srv/set_attitude.hpp"
-#include "simple_offboard_msgs/srv/set_rates.hpp"
-#include "simple_offboard_msgs/srv/submit_trajectory.hpp"
-#include "simple_offboard_msgs/srv/get_telemetry.hpp"
-#include "simple_offboard_msgs/srv/navigate.hpp"
-#include "simple_offboard_msgs/srv/takeoff.hpp"
-
-#include <libInterpolate/Interpolate.hpp>
-#include <libInterpolate/AnyInterpolator.hpp>
-
-enum class States {
-    WAIT_OFFBOARD, 
-    WAIT_ARM,
-    TAKEOFF,
-    LAND,
-    STOP,
-    EXECUTE
-};
-
-class TrajectoryHandler : public rclcpp::Node
-{
-    public:
-        TrajectoryHandler();
-        void submitTrajectory(std::shared_ptr<simple_offboard_msgs::srv::SubmitTrajectory::Request> req, std::shared_ptr<simple_offboard_msgs::srv::SubmitTrajectory::Response> res);
-
-    private:
-        void reset();
-        void updateTrajectory(const rclcpp::Time& stamp);
-        void resetExecutionTimer();
-        bool waitForMissionStart();
-        void landVehicle();
-        void gotoTrajectoryPoint(const trajectory_msgs::msg::JointTrajectoryPoint& point);
-        void takeoff_vehicle(const float height);
-        bool checkAbort();
-
-        void setPosition(const rclcpp::Duration time_elapsed);
-
-        // Mission parameters
-        bool mission_started;
-        bool mission_aborted;
-
-        // Execution parameters
-        std::atomic<bool> executing_trajectory;
-        rclcpp::Time start_time;
-        double max_time_sec;
-        rclcpp::TimerBase::SharedPtr execution_timer;
-        std::string frame_id = "map";
-
-        // Interpolators
-        std::vector<double> times;
-        std::vector<std::vector<double>> demands;
-        std::vector<_1D::AnyInterpolator<double>> interpolators;
-
-        // External parameters
-        double execution_frequency;
-        double end_extra_time; // Extra time to give after finishing trajectory
-        double get_to_first_point_timeout;
-
-        // Subscriptions
-        rclcpp::Subscription<std_msgs::msg::Empty>::SharedPtr               mission_start_sub;
-        rclcpp::Subscription<std_msgs::msg::Empty>::SharedPtr               mission_abort_sub;
-        rclcpp::Subscription<std_msgs::msg::Empty>::SharedPtr               estop_sub;
-
-        // Clients
-        rclcpp::Client<simple_offboard_msgs::srv::SetPosition>::SharedPtr        sp_client;
-        rclcpp::Client<simple_offboard_msgs::srv::SetVelocity>::SharedPtr       sv_client;
-        rclcpp::Client<simple_offboard_msgs::srv::SetAttitude>::SharedPtr       sa_client;
-        rclcpp::Client<simple_offboard_msgs::srv::SetRates>::SharedPtr          sr_client;
-        rclcpp::Client<simple_offboard_msgs::srv::Navigate>::SharedPtr          navigate_client;
-        rclcpp::Client<simple_offboard_msgs::srv::Takeoff>::SharedPtr           takeoff_client;
-        rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr                       land_client;
-
-        // Service
-        rclcpp::Service<simple_offboard_msgs::srv::SubmitTrajectory>::SharedPtr      traj_serv;
-
-        // Multithreaded callback groups
-        rclcpp::CallbackGroup::SharedPtr callback_group_timers_;
-        rclcpp::CallbackGroup::SharedPtr callback_group_subscribers_;
-        rclcpp::CallbackGroup::SharedPtr callback_group_clients_;
-};
+#include "trajectory.hpp"
 
 TrajectoryHandler::TrajectoryHandler() :
 	Node("trajectory_handler",
@@ -123,28 +26,53 @@ TrajectoryHandler::TrajectoryHandler() :
       rclcpp::CallbackGroupType::Reentrant);
 
     // Get Parameters
+    this->get_parameter_or("frame_id", this->frame_id, string("map")); 
     this->get_parameter_or("update_frequency", this->execution_frequency, 10.0); // hz
     this->get_parameter_or("end_extra_time", this->end_extra_time, 5.0); // seconds
-    this->get_parameter_or("get_to_first_point_timeout", this->get_to_first_point_timeout, 120.0); // seconds
+    this->get_parameter_or("location_arrival_epsilon", this->location_arrival_epsilon, 0.1); // meters
+    this->get_parameter_or("ground_threshold", this->ground_threshold, 0.2); // meters
+
+    // Get Timeout Parameters
+    this->state_timeout = this->get_timeout_parameter("state_timeout", 3.0);
+    this->local_position_timeout = this->get_timeout_parameter("local_position_timeout", 2.0);
+    this->arming_timeout = this->get_timeout_parameter("arming_timeout", 10.0);
+    this->offboard_timeout = this->get_timeout_parameter("offboard_timeout", 10.0);
+	this->land_timeout = this->get_timeout_parameter("land_timeout", 60.0);
+    this->takeoff_timeout = this->get_timeout_parameter("takeoff_timeout", 60.0);
+	
+    this->mission_start_receive_timeout = this->get_timeout_parameter("mission_start_receive_timeout", 3.0);
+
+    // Initialise Service Clients
+    this->mavros_arming_srv = this->create_client<mavros_msgs::srv::CommandBool>("mavros/cmd/arming", rmw_qos_profile_services_default, this->callback_group_clients_);
+    this->mavros_set_mode_srv = this->create_client<mavros_msgs::srv::SetMode>("mavros/set_mode", rmw_qos_profile_services_default, this->callback_group_clients_);
+    this->mavros_command_srv = this->create_client<mavros_msgs::srv::CommandLong>("mavros/cmd/command", rmw_qos_profile_services_default, this->callback_group_clients_);
 
     // Safety Subscribers
     auto sub_opt = rclcpp::SubscriptionOptions();
     sub_opt.callback_group = this->callback_group_subscribers_;
     this->mission_start_sub = this->create_subscription<std_msgs::msg::Empty>(
-        "/mission_start", 1, [this](const std_msgs::msg::Empty::SharedPtr s){(void)s; this->mission_started = true;}, sub_opt);
+        "/mission_start", 1, [this](const std_msgs::msg::Empty::SharedPtr s){(void)s; 
+        this->mission_start_receive_time = this->now();
+        RCLCPP_INFO(this->get_logger(), "Mission Start Received");}, sub_opt);
     this->mission_abort_sub = this->create_subscription<std_msgs::msg::Empty>(
-        "/mission_abort", 1, [this](const std_msgs::msg::Empty::SharedPtr s){(void)s; this->mission_aborted = true;}, sub_opt);
+        "/mission_abort", 1, [this](const std_msgs::msg::Empty::SharedPtr s){(void)s; 
+        this->execution_state = State::STOP;
+        RCLCPP_INFO(this->get_logger(), "Mission Abort Received, Stopping");}, sub_opt);
     this->estop_sub = this->create_subscription<std_msgs::msg::Empty>(
-        "/emergency_stop", 1, [this](const std_msgs::msg::Empty::SharedPtr s){(void)s; this->mission_aborted = true;}, sub_opt);
+        "/emergency_stop", 1, [this](const std_msgs::msg::Empty::SharedPtr s){(void)s; 
+        this->execution_state = State::STOP;
+        RCLCPP_ERROR(this->get_logger(), "EMERGENCY STOP RECIEVED, Stopping");}, sub_opt);
+    
+    // Mavros Subscribers
+    this->state_sub =   this->create_subscription<mavros_msgs::msg::State>(
+        "mavros/state", 10, [this](const mavros_msgs::msg::State::SharedPtr s){
+            this->last_received_vehicle_state = this->now(); this->vehicle_state = s;}, sub_opt);
+    this->local_position_sub =  this->create_subscription<geometry_msgs::msg::PoseStamped>(
+        "mavros/local_position/pose", 10, [this](const geometry_msgs::msg::PoseStamped::SharedPtr s){
+            this->last_received_vehicle_local_position = this->now(); this->vehicle_local_position = s;}, sub_opt);
 
-    // Initialise Service Clients
-    this->sp_client = this->create_client<simple_offboard_msgs::srv::SetPosition>("set_position");
-    this->sv_client = this->create_client<simple_offboard_msgs::srv::SetVelocity>("set_velocity");
-    this->sa_client = this->create_client<simple_offboard_msgs::srv::SetAttitude>("set_attitude");
-    this->sr_client = this->create_client<simple_offboard_msgs::srv::SetRates>("set_rates");
-    this->takeoff_client = this->create_client<simple_offboard_msgs::srv::Takeoff>("takeoff");
-    this->navigate_client = this->create_client<simple_offboard_msgs::srv::Navigate>("navigate", rmw_qos_profile_services_default, this->callback_group_clients_);
-    this->land_client = this->create_client<std_srvs::srv::Trigger>("land");
+    // Initialise Publishers
+    this->setpoint_position_pub = this->create_publisher<geometry_msgs::msg::PoseStamped>("mavros/setpoint_position/local", 1);
 
     // Initialise Trajectory Service
     this->traj_serv = this->create_service<simple_offboard_msgs::srv::SubmitTrajectory>("submit_trajectory",
@@ -153,38 +81,51 @@ TrajectoryHandler::TrajectoryHandler() :
     this->reset();
 }
 
+inline std::chrono::duration<double> TrajectoryHandler::get_timeout_parameter(string name, double default_param, bool invert) {
+    double t;
+    this->get_parameter_or(name, t, default_param);
+    if(invert) {return std::chrono::duration<double>(1.0/t);}
+    return std::chrono::duration<double>(t);
+}
+
+
 void TrajectoryHandler::reset(){
-    this->mission_started = false;
-    this->mission_aborted = false;
+    // Clear Parameters
     this->executing_trajectory = false;
+    this->execution_state = State::INIT;
+    this->mission_start_receive_time = rclcpp::Time(0U);
+
+    // Reset vehicle setpoint to zero
+    this->vehicle_setpoint = std::make_shared<geometry_msgs::msg::PoseStamped>();
 
     this->frame_id = "map";
     this->start_time = this->now();
 
+    // Clear Interpolators
     this->times.clear();
-    // this->xs.clear();
-    // this->ys.clear();
-    // this->zs.clear();
     for(auto d: this->demands) {
         d.clear();
     }
     this->demands.clear();
     this->interpolators.clear();
 
-    if (this->execution_timer){
-        this->execution_timer->cancel();
-    }
-    this->execution_timer = nullptr;
+    // Stop Execution Timer
+    this->resetExecutionTimer(false);
+   
     RCLCPP_INFO(this->get_logger(), "Reset Internal Parameters and Trajectory Executor");
 }
 
-void TrajectoryHandler::resetExecutionTimer() {
+void TrajectoryHandler::resetExecutionTimer(bool restart) {
     if (this->execution_timer) {
         this->execution_timer->cancel();
     }
-    auto execution_rate = std::chrono::duration<double>(1.0/this->execution_frequency);
-    this->execution_timer = this->create_wall_timer(execution_rate, [this](){this->updateTrajectory(this->now());});
-    RCLCPP_DEBUG(this->get_logger(), "Reset Trajectory Execution timer");
+    if(restart){
+        auto execution_rate = std::chrono::duration<double>(1.0/this->execution_frequency);
+        this->execution_timer = this->create_wall_timer(execution_rate, [this](){this->stateMachine(this->now());});
+        RCLCPP_DEBUG(this->get_logger(), "Reset Trajectory Execution timer");
+    } else {
+        this->execution_timer = nullptr;
+    }
 }
 
 void TrajectoryHandler::submitTrajectory(std::shared_ptr<simple_offboard_msgs::srv::SubmitTrajectory::Request> req, std::shared_ptr<simple_offboard_msgs::srv::SubmitTrajectory::Response> res) {
@@ -209,7 +150,6 @@ void TrajectoryHandler::submitTrajectory(std::shared_ptr<simple_offboard_msgs::s
 		return;
     }
 
-
     try {
         // Check if trajectory type has been given
         if (req->type != "position")
@@ -228,11 +168,6 @@ void TrajectoryHandler::submitTrajectory(std::shared_ptr<simple_offboard_msgs::s
 		return;
 	}
 
-    // Reset parameters
-    this->reset();
-
-    // Set parameters
-    this->executing_trajectory = true;
 
     // Check if valid positions:
     int num_demands = 0;
@@ -247,6 +182,12 @@ void TrajectoryHandler::submitTrajectory(std::shared_ptr<simple_offboard_msgs::s
         this->reset();
         return;
     }
+
+    // Reset parameters
+    this->reset();
+
+    // Set parameters
+    this->executing_trajectory = true;
 
     // Setup data
     this->max_time_sec = 0.0;
@@ -299,51 +240,10 @@ void TrajectoryHandler::submitTrajectory(std::shared_ptr<simple_offboard_msgs::s
 
     RCLCPP_INFO(this->get_logger(), "Interpolators initiated");
 
-    // Start State Machine Loop Including all elements
+    // Set Takeoff Location
+    this->takeoff_location = req->trajectory.points[0];
 
-
-    // Go to first point
-    // if (!req->do_not_wait_for_mission_start){
-    //     try {
-    //         if(this->demand_type == DemandType::POSITION && this->trajectory_type == TrajectoryType::POSITION && req->auto_takeoff)
-    //             RCLCPP_INFO(this->get_logger(), "Waiting for Mission Start before going to first location (%f, %f, %f)", this->demands[0][0], this->demands[0][1], this->demands[0][2]);
-    //         else {
-    //             if (!req->takeoff_height || req->takeoff_height < 1.0) {
-    //                 req->takeoff_height = 2.0;
-    //             }
-    //             RCLCPP_INFO(this->get_logger(), "Waiting for Mission Start before takeoff to height");
-    //         }
-
-    //         // Wait for mission start signal
-    //         if (!this->waitForMissionStart()) {
-    //             throw std::runtime_error("Mission aborted while waiting for mission start");
-    //         }
-
-    //         if(req->auto_takeoff) {
-    //             if(this->demand_type == DemandType::POSITION && this->trajectory_type == TrajectoryType::POSITION) {
-    //                 RCLCPP_INFO(this->get_logger(), "Mission Start Received, Proceeding to First Point");
-    //                 this->gotoTrajectoryPoint(req->trajectory.points[0]);
-    //             } else {
-    //                 RCLCPP_INFO(this->get_logger(), "Mission Start Received, Proceeding to Takeoff");
-    //                 this->takeoff_vehicle(req->takeoff_height);
-    //             }
-    //         }
-
-    //     } catch (const std::exception& e) {
-    //         res->message = e.what();
-    //         res->success = false;
-    //         RCLCPP_ERROR(this->get_logger(), "%s", res->message.c_str());
-    //         this->reset();
-    //         try {this->landVehicle();} catch (const std::exception &e1) {}
-    //         return;
-    //     }
-    //     RCLCPP_INFO(this->get_logger(), "Mission Start Received, Proceeding to Execute Submitted Trajectory");
-    // }
-
-    // Set start time to current time after mission start has been received
-    this->start_time = this->now();
-
-    // Start trajectory timer
+    // Start trajectory timer state loop (stateMachine)
     this->resetExecutionTimer();
 
     res->message = "Trajectory initialisation successful, executing submitted trajectory";
@@ -351,43 +251,261 @@ void TrajectoryHandler::submitTrajectory(std::shared_ptr<simple_offboard_msgs::s
     RCLCPP_INFO(this->get_logger(), res->message);
 }
 
-void TrajectoryHandler::updateTrajectory(const rclcpp::Time& stamp){
+void TrajectoryHandler::stateMachine(const rclcpp::Time& stamp){
 
-    // Check Safety
-    if(!this->checkAbort()) {
-        return;
+        auto previous_state = this->execution_state;
+
+        // Check if terminating
+        if(this->execution_state == State::TERMINATE) {
+            this->reset();
+            return;
+        }
+        
+        // Core saftey checks
+        // Will trigger early failure if not in initialisation phase.
+        bool checks = this->smChecks(stamp);
+        if(!checks && this->execution_state!=State::INIT) {
+            this->execution_state = State::STOP;
+            RCLCPP_INFO(this->get_logger(), "State machine checks failed, switching to STOP State");
+        }
+    
+    try{
+        switch(this->execution_state) {
+            case State::INIT:
+                // Initialisation steps before takeoff and execution
+                if(!checks) {
+                    RCLCPP_INFO(this->get_logger(), "Initialisation Waiting on System Checks");
+                }
+                else if (stamp - this->mission_start_receive_time > this->mission_start_receive_timeout) {
+                    RCLCPP_INFO(this->get_logger(), "Initialisation Waiting on Mission Start");
+                } else {
+                    this->execution_state = State::TAKEOFF;
+                }
+                break;
+            case State::TAKEOFF:
+                if(this->smOffboardArmed(stamp) && this->smTakeoffVehicle(stamp)) {
+                    this->start_time = this->now();
+                    this->execution_state = State::EXECUTE;
+                }
+                break;
+
+            case State::EXECUTE:
+                if(this->smOffboardArmed(stamp) && this->smExecuteTrajectory(stamp)) {
+                    this->execution_state = State::LAND;
+                }
+                break;
+            
+            case State::STOP:
+                // Perform some actions related to early stopping due to abort or estop, then go to land
+                this->execution_state = State::LAND;
+                break;
+
+            case State::LAND:
+                if(this->smLandVehicle(stamp)) {
+                    this->execution_state = State::MAKESAFE;
+                }
+                break;
+
+            case State::MAKESAFE:
+                // Make vehicle safe, i.e. disarm, then go to terminate
+                if(this->smMakeSafe(stamp)) {
+                    this->execution_state = State::TERMINATE;
+                }
+                break;
+
+            default:
+                RCLCPP_ERROR(this->get_logger(), "State machine should never get here");
+        };
+
+        if(this->execution_state != previous_state) {
+            RCLCPP_INFO(this->get_logger(), "State Machine change from %s to %s", previous_state.to_string(), this->execution_state.to_string());
+        }
     }
+    catch (const std::exception& e) {
+		string message = e.what();
+		RCLCPP_ERROR(this->get_logger(), "%s", message.c_str());
+		this->execution_state = State::STOP;
+	}
+
+}
+
+bool TrajectoryHandler::smChecks(const rclcpp::Time& stamp) {
+    if(stamp - this->last_received_vehicle_state > this->state_timeout) {
+        // State timeout
+        return false;
+    }
+    if(stamp - this->last_received_vehicle_local_position > this->local_position_timeout) {
+        // Local Position Timeout
+        return false;
+    }
+    return true;
+}
+
+bool TrajectoryHandler::smOffboardArmed(const rclcpp::Time& stamp) {
+    if(this->vehicle_state->mode != PX4_OFFBOARD_MODE) {
+        // Not in offboard mode, send offboard message
+        RCLCPP_INFO(this->get_logger(), "Not in OFFBOARD Mode, Sending OFFBOARD Set Mode Request");
+        this->sendSetModeRequest(PX4_OFFBOARD_MODE);
+
+        if(!this->offboard_attempt_start) {
+            this->offboard_attempt_start = std::make_shared<rclcpp::Time>(stamp);
+        } else if (stamp - *this->offboard_attempt_start > this->offboard_timeout) {
+            throw std::runtime_error("Changing to OFFBOARD Mode timeout");
+        }
+
+        return false;
+    } else {
+        this->offboard_attempt_start = nullptr;
+    }
+
+    if(!this->vehicle_state->armed) {
+        // Not armed, send armed message
+        RCLCPP_INFO(this->get_logger(), "Not ARMED, Sending ARMING Request");
+        auto sm = std::make_shared<mavros_msgs::srv::CommandBool::Request>();
+        sm->value = true;
+        this->mavros_arming_srv->async_send_request(sm);
+
+        if(!this->arming_attempt_start) {
+            this->arming_attempt_start = std::make_shared<rclcpp::Time>(stamp);
+        } else if (stamp - *this->arming_attempt_start > this->arming_timeout) {
+            throw std::runtime_error("ARMING timeout");
+        }
+        
+        return false;
+    } else {
+        this->arming_attempt_start = nullptr;
+    }
+    return true;
+}
+
+bool TrajectoryHandler::smMakeSafe(const rclcpp::Time& stamp) {
+    // DISARM vehicle
+    if(this->vehicle_state->armed) {
+        // Not armed, send armed message
+        RCLCPP_INFO(this->get_logger(), "ARMED, Sending DISARMING Request");
+        auto sm = std::make_shared<mavros_msgs::srv::CommandBool::Request>();
+        sm->value = false;
+        this->mavros_arming_srv->async_send_request(sm);
+
+        if(!this->arming_attempt_start) {
+            this->arming_attempt_start = std::make_shared<rclcpp::Time>(stamp);
+        } else if (stamp - *this->arming_attempt_start > this->arming_timeout) {
+            throw std::runtime_error("DISARMING timeout");
+        }
+        
+        return false;
+    } else {
+        this->arming_attempt_start = nullptr;
+    }
+    return true;
+}
+
+bool TrajectoryHandler::smTakeoffVehicle(const rclcpp::Time& stamp) {
+    this->vehicle_setpoint->pose.position.x = this->takeoff_location.positions[0];
+    this->vehicle_setpoint->pose.position.y = this->takeoff_location.positions[1];
+    this->vehicle_setpoint->pose.position.z = this->takeoff_location.positions[2];
+    if(this->takeoff_location.positions.size()>3){
+        tf2::Quaternion quat; 
+        quat.setRPY(0.0, 0.0, this->takeoff_location.positions[3]);
+        this->vehicle_setpoint->pose.orientation = tf2::toMsg(quat);
+    }
+
+    // Publish takeoff position as a setpoint
+    this->setpoint_position_pub->publish(*this->vehicle_setpoint);
+
+    // If vehicle is near setpoint then continue otherwise keep checking
+    if(!this->vehicleNearLocation(this->vehicle_setpoint->pose)) {
+        if(!this->takeoff_attempt_start) {
+            this->takeoff_attempt_start = std::make_shared<rclcpp::Time>(stamp);
+        } else if (stamp - *this->takeoff_attempt_start > this->takeoff_timeout) {
+            throw std::runtime_error("TAKEOFF timeout");
+        }
+        return false;
+    } else {
+        this->takeoff_attempt_start = nullptr;
+    }
+
+    return true;
+}
+
+bool TrajectoryHandler::smLandVehicle(const rclcpp::Time& stamp) {
+    this->sendSetModeRequest(PX4_LAND_MODE);
+
+    if(this->vehicle_state->mode != PX4_LAND_MODE || this->vehicle_local_position->pose.position.z >= this->ground_threshold) {
+        if(!this->land_attempt_start) {
+            this->land_attempt_start = std::make_shared<rclcpp::Time>(stamp);
+        } else if (stamp - *this->land_attempt_start > this->land_timeout) {
+            throw std::runtime_error("LAND timeout");
+        }
+        return false;
+    } else {
+        this->land_attempt_start = nullptr;
+    }
+    return true;
+}
+
+bool TrajectoryHandler::smExecuteTrajectory(const rclcpp::Time& stamp) {
 
     // Get time elapsed since start of trajectory
     rclcpp::Duration time_elapsed = stamp - this->start_time;
+    double time_elapsed_sec = time_elapsed.seconds();
+    bool completed = false;
 
     // Is time elapsed after the maximum time in the trajectory
-    if (time_elapsed > std::chrono::duration<double>(this->max_time_sec)) {
+    if (time_elapsed_sec > this->max_time_sec) {
         // Then stop update loop and exit
-        RCLCPP_INFO(this->get_logger(), "Reached final trajectory point");
-        this->landVehicle();
-        this->reset();
-        return;
+        RCLCPP_INFO(this->get_logger(), "Reached final trajectory time");
+        time_elapsed_sec = this->max_time_sec;
+        completed = true;
     }
 
-    // Call set position function
-    this->setPosition(time_elapsed);
+    // Create next setpoint
+    this->vehicle_setpoint->pose.position.x = this->interpolators[0](time_elapsed_sec);
+    this->vehicle_setpoint->pose.position.y = this->interpolators[1](time_elapsed_sec);
+    this->vehicle_setpoint->pose.position.z = this->interpolators[2](time_elapsed_sec);
+    if (this->interpolators.size() >3){
+        tf2::Quaternion quat; 
+        quat.setRPY(0.0, 0.0, this->interpolators[3](time_elapsed_sec));
+        this->vehicle_setpoint->pose.orientation = tf2::toMsg(quat);
+    }
+
+    // Publish takeoff position as a setpoint
+    this->setpoint_position_pub->publish(*this->vehicle_setpoint);
+    RCLCPP_INFO(this->get_logger(), "Sent request (t=%f) (%f, %f, %f)", 
+        time_elapsed_sec, 
+        this->vehicle_setpoint->pose.position.x,
+        this->vehicle_setpoint->pose.position.y,
+        this->vehicle_setpoint->pose.position.z
+    );
+
+    // If Reached Maximum time (completed), and drone is on the final location, then continue
+    // May need a timeout just in case 
+    if(completed && this->vehicleNearLocation(this->vehicle_setpoint->pose)) {
+        RCLCPP_INFO(this->get_logger(), "Trajectory Completed");
+        return true;
+    }
+
+    return false;
 }
 
-void TrajectoryHandler::setPosition(const rclcpp::Duration time_elapsed) {
-    double time_elapsed_sec = time_elapsed.seconds();
-    auto req = std::make_shared<simple_offboard_msgs::srv::SetPosition::Request>();
-    req->x = this->interpolators[0](time_elapsed_sec);
-    req->y = this->interpolators[1](time_elapsed_sec);
-    req->z = this->interpolators[2](time_elapsed_sec);
-    if (this->interpolators.size() >3)
-        req->yaw =  this->interpolators[3](time_elapsed_sec); // Make interpolate later
-    if (this->interpolators.size() >4)
-        req->yaw_rate = this->interpolators[4](time_elapsed_sec); // Make interpolate later
-    req->frame_id = this->frame_id;
-    req->auto_arm = true;
+bool TrajectoryHandler::vehicleNearLocation(const geometry_msgs::msg::Pose& location) {
+    if(!this->vehicle_local_position) {
+        throw std::runtime_error("Vehicle location not received");
+    }
+    auto pose = this->vehicle_local_position->pose;
 
-    while (!this->sp_client->wait_for_service(std::chrono::duration<double>(0.01))) {
+    // Right now only match coordinate and not orientation
+    bool zcomp = fabs(pose.position.z - location.position.z) > this->location_arrival_epsilon;
+    bool xcomp = fabs(pose.position.x - location.position.x) > this->location_arrival_epsilon;
+    bool ycomp = fabs(pose.position.y - location.position.y) > this->location_arrival_epsilon;
+    return xcomp && ycomp && zcomp;
+}
+
+void TrajectoryHandler::sendSetModeRequest(string custom_mode) {
+    auto sm = std::make_shared<mavros_msgs::srv::SetMode::Request>();
+    sm->custom_mode = custom_mode;
+
+    while (!this->mavros_set_mode_srv->wait_for_service(std::chrono::duration<int>(2))) {
         if (!rclcpp::ok()) {
             RCLCPP_ERROR(this->get_logger(), "Interrupted while waiting for set mode service. Exiting.");
             throw std::runtime_error("Interrupted while waiting for set mode service. Exiting.");
@@ -396,99 +514,8 @@ void TrajectoryHandler::setPosition(const rclcpp::Duration time_elapsed) {
         RCLCPP_INFO(this->get_logger(), "service not available, waiting again...");
     }
 
-    auto result_future = this->sp_client->async_send_request(req);
-    RCLCPP_INFO(this->get_logger(), "Sent request (t=%f) (%f, %f, %f)", time_elapsed_sec, req->x, req->y, req->z);
-}
-
-bool TrajectoryHandler::waitForMissionStart() {
-    while(!this->mission_started) {
-        RCLCPP_INFO(this->get_logger(), "Waiting For Mission Start");
-        if(this->mission_aborted) {
-            return false;
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    }
-    return true;
-}
-
-void TrajectoryHandler::gotoTrajectoryPoint(const trajectory_msgs::msg::JointTrajectoryPoint& point) {
-    auto nav_req = std::make_shared<simple_offboard_msgs::srv::Navigate::Request>();
-    nav_req->x = point.positions[0];
-    nav_req->y = point.positions[1];
-    nav_req->z = point.positions[2];
-    if (point.positions.size() > 3)
-        nav_req->yaw = point.positions[3];
-    if (point.positions.size() > 4)
-        nav_req->yaw_rate = point.positions[4];
-    nav_req->speed = 0.5;
-    nav_req->frame_id = this->frame_id;
-    nav_req->auto_arm = true;
-    nav_req->blocking = true;
-
-    while (!this->navigate_client->wait_for_service(std::chrono::duration<double>(5.0))) {
-        if (!rclcpp::ok() || !this->checkAbort()) {
-            throw std::runtime_error("Interrupted while waiting for navigate service. Exiting.");
-        }
-        RCLCPP_INFO(this->get_logger(), "Navigate Service not available, waiting again...");
-    }
-    auto result_future = this->navigate_client->async_send_request(nav_req);
-    if (result_future.wait_for(std::chrono::duration<double>(this->get_to_first_point_timeout)) != std::future_status::ready)
-    {
-        throw std::runtime_error("Navigate Service call failed");
-    }
-    auto result = result_future.get();
-    if (!result->success) {
-        throw std::runtime_error("Navigate Service errored with: " + result->message);
-    }
-}
-
-void TrajectoryHandler::takeoff_vehicle(const float height) {
-    auto nav_req = std::make_shared<simple_offboard_msgs::srv::Navigate::Request>();
-    nav_req->x = 0;
-    nav_req->y = 0;
-    nav_req->z = height;
-    nav_req->speed = 0.5;
-    nav_req->frame_id = this->frame_id;
-    nav_req->auto_arm = true;
-    nav_req->blocking = true;
-
-    while (!this->navigate_client->wait_for_service(std::chrono::duration<double>(5.0))) {
-        if (!rclcpp::ok() || !this->checkAbort()) {
-            throw std::runtime_error("Interrupted while waiting for navigate service. Exiting.");
-        }
-        RCLCPP_INFO(this->get_logger(), "Navigate Service not available, waiting again...");
-    }
-    auto result_future = this->navigate_client->async_send_request(nav_req);
-    if (result_future.wait_for(std::chrono::duration<double>(this->get_to_first_point_timeout)) != std::future_status::ready)
-    {
-        throw std::runtime_error("Navigate Service call failed");
-    }
-    auto result = result_future.get();
-    if (!result->success) {
-        throw std::runtime_error("Navigate Service errored with: " + result->message);
-    }
-    RCLCPP_INFO(this->get_logger(), "Takeoff Successful");
-}
-
-void TrajectoryHandler::landVehicle() {
-    while (!this->land_client->wait_for_service(std::chrono::duration<double>(0.01))) {
-        if (!rclcpp::ok()) {
-            throw std::runtime_error("Interrupted while waiting for landing service. Exiting.");
-        }
-        RCLCPP_INFO(this->get_logger(), "Land Service not available, waiting again...");
-    }
-    this->land_client->async_send_request(std::make_shared<std_srvs::srv::Trigger::Request>());
-    RCLCPP_INFO(this->get_logger(), "Landing Request Sent");
-}
-
-bool TrajectoryHandler::checkAbort() {
-    if(this->mission_aborted) {
-        RCLCPP_ERROR(this->get_logger(), "MISSION ABORTED OR ESTOP PRESSED, CANCELLING TRAJECTORY");
-        this->landVehicle();
-        this->reset();
-        return false;
-    }
-    return true;
+    this->mavros_set_mode_srv->async_send_request(sm);
+    RCLCPP_INFO(this->get_logger(), "Sent set mode request: %s", custom_mode.c_str());
 }
 
 int main(int argc, char **argv)
