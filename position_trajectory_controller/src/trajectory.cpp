@@ -480,7 +480,7 @@ bool TrajectoryHandler::smExecuteTrajectory(const rclcpp::Time& stamp) {
 
     // If Reached Maximum time (completed), and drone is on the final location, then continue
     // May need a timeout just in case 
-    if(completed && this->vehicleNearLocation(this->vehicle_setpoint->pose) ) {
+    if(completed && this->vehicleNearLocation(this->vehicle_setpoint->pose)) {
         RCLCPP_INFO(this->get_logger(), "Trajectory Completed");
         return true;
     }
