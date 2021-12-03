@@ -32,8 +32,6 @@ spec:
       - name: position-trajectory-controller
         image: uobflightlabstarling/position-trajectory-controller
         imagePullPolicy: Always
-        securityContext:
-          privileged: true
         volumeMounts:
         - mountPath: /etc/starling/vehicle.config
           name: vehicleconfig
