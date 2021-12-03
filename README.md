@@ -52,11 +52,7 @@ The first `JointTrajectoryPoint` in `trajectory` is used to determine the type o
 
 > **Note**: The `position` field of `JointTrajectoryPoint` is checked first. If it is populated by at least 3 values, it will assume they are valid points, otherwise it will check the `velocity` field. If neither is populated an error will be returned.
 
-### Execution of the trajectory.
-
-Once a request has been received, it is first checked for validity and processed into memory ready to be executed. Then execution differs depending on trajectory type:
-
-#### Position Trajectory
+### Execution of the position trajectory.
 
 Unless `do_not_wait_for_mission_start` is set, the executor will pause until it has received a mission start signal on `\mission_start` topic (std_msgs/Empty.msg). This can be done manually on the command line or through the [Starling UI](https://github.com/mhl787156/starling_ui_dashly)
 

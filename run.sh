@@ -1,4 +1,5 @@
 #!/bin/bash
+source /etc/starling/vehicle.config
 
 if [ ! -v $VEHICLE_MAVLINK_SYSID ]; then
     export VEHICLE_MAVLINK_SYSID=$VEHICLE_MAVLINK_SYSID
