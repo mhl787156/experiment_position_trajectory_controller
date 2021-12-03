@@ -56,18 +56,25 @@ TrajectoryHandler::TrajectoryHandler() :
         RCLCPP_INFO(this->get_logger(), "Mission Start Received");}, sub_opt);
     this->mission_abort_sub = this->create_subscription<std_msgs::msg::Empty>(
         "/mission_abort", 1, [this](const std_msgs::msg::Empty::SharedPtr s){(void)s; 
-        this->execution_state = State::STOP;
-        RCLCPP_INFO(this->get_logger(), "Mission Abort Received, Stopping");}, sub_opt);
+        if(!mission_stop_received){
+            this->execution_state = State::STOP; 
+            mission_stop_received = true;
+            RCLCPP_INFO(this->get_logger(), "Mission Abort Received, Stopping");
+        }}, sub_opt);
     this->estop_sub = this->create_subscription<std_msgs::msg::Empty>(
         "/emergency_stop", 1, [this](const std_msgs::msg::Empty::SharedPtr s){(void)s; 
-        this->execution_state = State::STOP;
-        RCLCPP_ERROR(this->get_logger(), "EMERGENCY STOP RECIEVED, Stopping");}, sub_opt);
+        if(!mission_stop_received){
+            this->execution_state = State::STOP; 
+            mission_stop_received = true;
+            RCLCPP_ERROR(this->get_logger(), "EMERGENCY STOP RECIEVED, Stopping");
+        }
+        this->emergency_stop();}, sub_opt);
     
     // Mavros Subscribers
     this->state_sub =   this->create_subscription<mavros_msgs::msg::State>(
         "mavros/state", 10, [this](const mavros_msgs::msg::State::SharedPtr s){
             this->last_received_vehicle_state = this->now(); 
-            if(!this->vehicle_state){RCLCPP_INFO(this->get_logger(), "Initial mavros state received");}
+            if(!this->vehicle_state){RCLCPP_INFO(this->get_logger(), "Initial mavros state received"); this->prev_vehicle_state = this->vehicle_state;}
             this->vehicle_state = s;}, sub_opt);
     this->local_position_sub =  this->create_subscription<geometry_msgs::msg::PoseStamped>(
         "mavros/local_position/pose", 10, [this](const geometry_msgs::msg::PoseStamped::SharedPtr s){
@@ -86,6 +93,24 @@ TrajectoryHandler::TrajectoryHandler() :
     RCLCPP_INFO(this->get_logger(), "Controller initialised, waiting for requests on 'submit_trajectory' service.");
 }
 
+void TrajectoryHandler::emergency_stop() {
+    RCLCPP_WARN(this->get_logger(), "Emergency Stop activated, sending Kill");
+    // Kill Drone Rotors
+    auto commandCall = std::make_shared<mavros_msgs::srv::CommandLong::Request>();
+    commandCall->broadcast = false;
+    commandCall->command = 400;
+    commandCall->param2 = 21196.0;
+    while (!this->mavros_command_srv->wait_for_service(std::chrono::duration<float>(0.1))) {
+        if (!rclcpp::ok()) {
+            RCLCPP_ERROR(this->get_logger(), "Interrupted while waiting for command service. Exiting.");
+            throw std::runtime_error("Interrupted while waiting for command service. Exiting.");
+            return;
+        }
+        RCLCPP_INFO(this->get_logger(), "service not available, waiting again...");
+    }
+    auto result_future = this->mavros_command_srv->async_send_request(commandCall);
+}
+
 inline std::chrono::duration<double> TrajectoryHandler::get_timeout_parameter(string name, double default_param, bool invert) {
     double t;
     this->get_parameter_or(name, t, default_param);
@@ -93,9 +118,9 @@ inline std::chrono::duration<double> TrajectoryHandler::get_timeout_parameter(st
     return std::chrono::duration<double>(t);
 }
 
-
 void TrajectoryHandler::reset(){
     // Clear Parameters
+    this->mission_stop_received = false;
     this->executing_trajectory = false;
     this->execution_state = State::INIT;
     this->mission_start_receive_time = nullptr;
@@ -330,9 +355,7 @@ void TrajectoryHandler::stateMachine(const rclcpp::Time& stamp){
                 RCLCPP_ERROR(this->get_logger(), "State machine should never get here");
         };
 
-        if(this->execution_state != previous_state) {
-            RCLCPP_INFO(this->get_logger(), "State Machine change from %s to %s", previous_state.to_string().c_str(), this->execution_state.to_string().c_str());
-        }
+
     }
     catch (const std::exception& e) {
 		string message = e.what();
@@ -340,6 +363,11 @@ void TrajectoryHandler::stateMachine(const rclcpp::Time& stamp){
 		this->execution_state = State::STOP;
 	}
 
+    if(this->execution_state != previous_state) {
+        RCLCPP_INFO(this->get_logger(), "State Machine change from %s to %s", previous_state.to_string().c_str(), this->execution_state.to_string().c_str());
+    }
+
+    this->prev_vehicle_state = this->vehicle_state;
 }
 
 bool TrajectoryHandler::smChecks(const rclcpp::Time& stamp) {
@@ -365,7 +393,6 @@ bool TrajectoryHandler::smOffboardArmed(const rclcpp::Time& stamp) {
             throw std::runtime_error("Changing to OFFBOARD Mode timeout");
         }
 
-        this->prev_vehicle_state = this->vehicle_state;
         return false;
     } else {
         this->offboard_attempt_start = nullptr;
@@ -387,7 +414,6 @@ bool TrajectoryHandler::smOffboardArmed(const rclcpp::Time& stamp) {
             throw std::runtime_error("ARMING timeout");
         }
 
-        this->prev_vehicle_state = this->vehicle_state;
         return false;
     } else {
         this->arming_attempt_start = nullptr;
@@ -395,8 +421,6 @@ bool TrajectoryHandler::smOffboardArmed(const rclcpp::Time& stamp) {
             RCLCPP_INFO(this->get_logger(), "Confirmed ARMED");
         }
     }
-
-    this->prev_vehicle_state = this->vehicle_state;
 
     return true;
 }
@@ -417,7 +441,6 @@ bool TrajectoryHandler::smMakeSafe(const rclcpp::Time& stamp) {
             throw std::runtime_error("DISARMING timeout");
         }
 
-        this->prev_vehicle_state = this->vehicle_state;
         return false;
     } else {
         this->arming_attempt_start = nullptr;
@@ -425,8 +448,6 @@ bool TrajectoryHandler::smMakeSafe(const rclcpp::Time& stamp) {
             RCLCPP_INFO(this->get_logger(), "Confirmed DISARMED");
         }
     }
-
-    this->prev_vehicle_state = this->vehicle_state;
 
     return true;
 }

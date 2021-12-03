@@ -120,6 +120,8 @@ class TrajectoryHandler : public rclcpp::Node
         void resetExecutionTimer(bool restart=true);
         void stateMachine(const rclcpp::Time& stamp);
 
+        void emergency_stop();
+
         // State machine functions
         bool smChecks(const rclcpp::Time& stamp);  
         bool smOffboardArmed(const rclcpp::Time& stamp);      
@@ -137,6 +139,7 @@ class TrajectoryHandler : public rclcpp::Node
 
         // Mission parameters
         std::shared_ptr<rclcpp::Time> mission_start_receive_time;
+        bool mission_stop_received = false;
 
         // Execution parameters
         std::atomic<bool> executing_trajectory; // Is a trajectory being executed
