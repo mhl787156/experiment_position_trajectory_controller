@@ -35,6 +35,7 @@
 
 #include <tf2/utils.h>
 #include <tf2/convert.h>
+#include <tf2_ros/transform_broadcaster.h>
 
 #include "simple_offboard_msgs/srv/submit_trajectory.hpp"
 
@@ -136,6 +137,7 @@ class TrajectoryHandler : public rclcpp::Node
         void sendSetModeRequest(string custom_mode);
         bool vehicleNearLocation(const geometry_msgs::msg::Pose& location);
         void printVehiclePosition();
+        void sendSetpointPosition(const rclcpp::Time& stamp, const double x, const double y, const double z, const double yaw=0.0);
 
         // Mission parameters
         std::shared_ptr<rclcpp::Time> mission_start_receive_time;
@@ -186,8 +188,12 @@ class TrajectoryHandler : public rclcpp::Node
         std::shared_ptr<mavros_msgs::msg::State> prev_vehicle_state;
         rclcpp::Time last_received_vehicle_local_position;
         std::shared_ptr<geometry_msgs::msg::PoseStamped> vehicle_local_position;
-
         std::shared_ptr<geometry_msgs::msg::PoseStamped> vehicle_setpoint;
+
+        // TF Broadcasting
+        string vehicle_frame_id;
+        string setpoint_frame_id;
+        std::shared_ptr<tf2_ros::TransformBroadcaster> transform_broadcaster;
 
         // Publishers
         rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr       setpoint_position_pub;

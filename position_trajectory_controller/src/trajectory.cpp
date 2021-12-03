@@ -26,11 +26,14 @@ TrajectoryHandler::TrajectoryHandler() :
       rclcpp::CallbackGroupType::Reentrant);
 
     // Get Parameters
-    this->get_parameter_or("frame_id", this->frame_id, string("map")); 
-    this->get_parameter_or("update_frequency", this->execution_frequency, 10.0); // hz
+    this->get_parameter_or("execution_frequency", this->execution_frequency, 10.0); // hz
     this->get_parameter_or("end_extra_time", this->end_extra_time, 5.0); // seconds
     this->get_parameter_or("location_arrival_epsilon", this->location_arrival_epsilon, 0.1); // meters
     this->get_parameter_or("ground_threshold", this->ground_threshold, 0.2); // meters
+
+    this->get_parameter_or("frame_id", this->frame_id, string("map")); 
+    this->get_parameter_or("vehicle_frame_id", this->vehicle_frame_id, string("vehicle")); // meters
+    this->get_parameter_or("setpoint_frame_id", this->setpoint_frame_id, string("setpoint")); // meters
 
     // Get Timeout Parameters
     this->state_timeout = this->get_timeout_parameter("state_timeout", 3.0);
@@ -41,6 +44,9 @@ TrajectoryHandler::TrajectoryHandler() :
     this->takeoff_timeout = this->get_timeout_parameter("takeoff_timeout", 60.0);
 	
     this->mission_start_receive_timeout = this->get_timeout_parameter("mission_start_receive_timeout", 3.0);
+
+    // Initialise tf2
+    this->transform_broadcaster = std::make_shared<tf2_ros::TransformBroadcaster>(this);
 
     // Initialise Service Clients
     this->mavros_arming_srv = this->create_client<mavros_msgs::srv::CommandBool>("mavros/cmd/arming", rmw_qos_profile_services_default, this->callback_group_clients_);
@@ -453,17 +459,14 @@ bool TrajectoryHandler::smMakeSafe(const rclcpp::Time& stamp) {
 }
 
 bool TrajectoryHandler::smTakeoffVehicle(const rclcpp::Time& stamp) {
-    this->vehicle_setpoint->pose.position.x = this->takeoff_location.positions[0];
-    this->vehicle_setpoint->pose.position.y = this->takeoff_location.positions[1];
-    this->vehicle_setpoint->pose.position.z = this->takeoff_location.positions[2];
-    if(this->takeoff_location.positions.size()>3){
-        tf2::Quaternion quat; 
-        quat.setRPY(0.0, 0.0, this->takeoff_location.positions[3]);
-        this->vehicle_setpoint->pose.orientation = tf2::toMsg(quat);
-    }
-
+  
     // Publish takeoff position as a setpoint
-    this->setpoint_position_pub->publish(*this->vehicle_setpoint);
+    this->sendSetpointPosition(stamp,
+        this->takeoff_location.positions[0],
+        this->takeoff_location.positions[1],
+        this->takeoff_location.positions[2],
+        this->takeoff_location.positions.size()>3?this->takeoff_location.positions[3]:0.0
+    );
 
     // If vehicle is near setpoint then continue otherwise keep checking
     if(!this->vehicleNearLocation(this->vehicle_setpoint->pose)) {
@@ -516,18 +519,14 @@ bool TrajectoryHandler::smExecuteTrajectory(const rclcpp::Time& stamp) {
         completed = true;
     }
 
-    // Create next setpoint
-    this->vehicle_setpoint->pose.position.x = this->interpolators[0](time_elapsed_sec);
-    this->vehicle_setpoint->pose.position.y = this->interpolators[1](time_elapsed_sec);
-    this->vehicle_setpoint->pose.position.z = this->interpolators[2](time_elapsed_sec);
-    if (this->interpolators.size() >3){
-        tf2::Quaternion quat; 
-        quat.setRPY(0.0, 0.0, this->interpolators[3](time_elapsed_sec));
-        this->vehicle_setpoint->pose.orientation = tf2::toMsg(quat);
-    }
+    // Publish position as a setpoint
+    this->sendSetpointPosition(stamp,
+        this->interpolators[0](time_elapsed_sec),
+        this->interpolators[1](time_elapsed_sec),
+        this->interpolators[2](time_elapsed_sec),
+        this->interpolators.size()>3?this->interpolators[3](time_elapsed_sec):0.0
+    );
 
-    // Publish takeoff position as a setpoint
-    this->setpoint_position_pub->publish(*this->vehicle_setpoint);
     RCLCPP_INFO(this->get_logger(), "Sent request (t=%f) (%f, %f, %f)", 
         time_elapsed_sec, 
         this->vehicle_setpoint->pose.position.x,
@@ -573,6 +572,30 @@ void TrajectoryHandler::sendSetModeRequest(string custom_mode) {
 
     this->mavros_set_mode_srv->async_send_request(sm);
     RCLCPP_INFO(this->get_logger(), "Current mode is %s, Sending %s Set Mode Request", this->vehicle_state->mode.c_str(), custom_mode.c_str());
+}
+
+void TrajectoryHandler::sendSetpointPosition(const rclcpp::Time& stamp, const double x, const double y, const double z, const double yaw) {
+    this->vehicle_setpoint->pose.position.x = x;
+    this->vehicle_setpoint->pose.position.y = y;
+    this->vehicle_setpoint->pose.position.z = z;
+    
+    tf2::Quaternion quat; 
+    quat.setRPY(0.0, 0.0, yaw);
+    this->vehicle_setpoint->pose.orientation = tf2::toMsg(quat);
+
+    // Publish position as a setpoint
+    this->setpoint_position_pub->publish(*this->vehicle_setpoint);
+
+    // Publish as transform
+    geometry_msgs::msg::TransformStamped tf;
+    tf.child_frame_id = this->setpoint_frame_id;
+    tf.transform.rotation = this->vehicle_setpoint->pose.orientation;
+    tf.transform.translation.x = this->vehicle_setpoint->pose.position.x;
+    tf.transform.translation.y = this->vehicle_setpoint->pose.position.y;
+    tf.transform.translation.z = this->vehicle_setpoint->pose.position.z;
+    tf.header.frame_id = this->frame_id;
+    tf.header.stamp = stamp;
+    this->transform_broadcaster->sendTransform(tf);
 }
 
 void TrajectoryHandler::printVehiclePosition() {
