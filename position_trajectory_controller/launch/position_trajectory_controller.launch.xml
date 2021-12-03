@@ -1,0 +1,9 @@
+<launch>
+    <arg name="vehicle_namespace" default="$(env VEHICLE_NAMESPACE vehicle_$(env VEHICLE_MAVLINK_SYSID))" />
+
+    <group>
+        <push-ros-namespace namespace="$(var vehicle_namespace)"/>
+        <node name="trajectory_handler" pkg="position_trajectory_controller" exec="trajectory_handler" output="screen" respawn="true"/>
+    </group>
+
+</launch>

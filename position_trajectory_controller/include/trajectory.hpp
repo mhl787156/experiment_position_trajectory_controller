@@ -133,9 +133,10 @@ class TrajectoryHandler : public rclcpp::Node
         std::chrono::duration<double> get_timeout_parameter(string name, double default_param, bool invert = false);
         void sendSetModeRequest(string custom_mode);
         bool vehicleNearLocation(const geometry_msgs::msg::Pose& location);
+        void printVehiclePosition();
 
         // Mission parameters
-        rclcpp::Time mission_start_receive_time;
+        std::shared_ptr<rclcpp::Time> mission_start_receive_time;
 
         // Execution parameters
         std::atomic<bool> executing_trajectory; // Is a trajectory being executed
@@ -156,6 +157,7 @@ class TrajectoryHandler : public rclcpp::Node
         double location_arrival_epsilon;        // Determine if vehicle is near setpoint
         double ground_threshold;                // Below ground threshold indicates that vehicle has landed
 
+        // Timeouts and timing
         std::chrono::duration<double> local_position_timeout;
         std::chrono::duration<double> state_timeout;
         
@@ -178,6 +180,7 @@ class TrajectoryHandler : public rclcpp::Node
         // Vehicle State
         rclcpp::Time last_received_vehicle_state;
         std::shared_ptr<mavros_msgs::msg::State> vehicle_state;
+        std::shared_ptr<mavros_msgs::msg::State> prev_vehicle_state;
         rclcpp::Time last_received_vehicle_local_position;
         std::shared_ptr<geometry_msgs::msg::PoseStamped> vehicle_local_position;
 
