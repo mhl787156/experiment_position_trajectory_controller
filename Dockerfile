@@ -17,8 +17,15 @@ RUN wget https://raw.githubusercontent.com/mavlink/mavros/ros2/mavros/scripts/in
     && bash install_geographiclib_datasets.sh \
     && ln -s /usr/share/cmake/geographiclib/FindGeographicLib.cmake /usr/share/cmake-3.16/Modules/
 
-COPY simple_offboard /ros_ws/src/simple_offboard
-COPY simple_offboard_msgs /ros_ws/src/simple_offboard_msgs
+# Build the package
+RUN . /opt/ros/${ROS_DISTRO}/setup.sh \
+    && git clone https://github.com/StarlingUAS/starling_simple_offboard.git /ros_ws/src/simple_offboard \
+    && export CMAKE_PREFIX_PATH=$AMENT_PREFIX_PATH:$CMAKE_PREFIX_PATH \
+    && cd /ros_ws \
+    && colcon build --packages-select simple_offboard_msgs \
+    && rm -r build
+
+COPY position_trajectory_controller /ros_ws/src/position_trajectory_controller
 COPY .git /ros_ws/src/.git
 COPY .gitmodules /ros_ws/src/.gitmodules
 
@@ -26,7 +33,7 @@ COPY .gitmodules /ros_ws/src/.gitmodules
 RUN . /opt/ros/${ROS_DISTRO}/setup.sh \
     && export CMAKE_PREFIX_PATH=$AMENT_PREFIX_PATH:$CMAKE_PREFIX_PATH \
     && cd /ros_ws \
-    && colcon build --packages-select simple_offboard_msgs simple_offboard \
+    && colcon build --packages-select position_trajectory_controller \
     && rm -r build
 
 COPY run.sh .

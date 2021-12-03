@@ -1,4 +1,5 @@
 #!/bin/bash
+source /etc/starling/vehicle.config
 
 if [ ! -v $VEHICLE_MAVLINK_SYSID ]; then
     export VEHICLE_MAVLINK_SYSID=$VEHICLE_MAVLINK_SYSID
@@ -8,4 +9,4 @@ else
     echo "VEHICLE_MAVLINK_SYSID not set, default to 1"
 fi
 
-ros2 launch simple_offboard starling_simple_offboard.launch.xml
+ros2 launch position_trajectory_controller position_trajectory_controller.launch.xml

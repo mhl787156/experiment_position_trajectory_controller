@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.5)
-project(simple_offboard)
+project(position_trajectory_controller)
 
 # Default to C99
 if(NOT CMAKE_C_STANDARD)
@@ -35,16 +35,15 @@ find_package(simple_offboard_msgs REQUIRED)
 
 add_subdirectory(external/libInterpolate)
 
-add_executable(simple_offboard src/simple_offboard.cpp)
-ament_target_dependencies(simple_offboard
-  rclcpp std_msgs tf2 tf2_ros tf2_geometry_msgs std_srvs
-  geometry_msgs sensor_msgs mavros_msgs GeographicLib simple_offboard_msgs
-)
 
-add_executable(trajectory_handler src/trajectory.cpp)
+set(HEADER_FILES include/trajectory.hpp)
+
+add_executable(trajectory_handler src/trajectory.cpp ${HEADER_FILES})
 ament_target_dependencies(trajectory_handler
   rclcpp std_msgs std_srvs trajectory_msgs simple_offboard_msgs
+  mavros_msgs geometry_msgs tf2 tf2_ros
 )
+target_include_directories(trajectory_handler PRIVATE include)
 target_link_libraries( trajectory_handler libInterpolate::Interpolate )
 
 if(BUILD_TESTING)
@@ -66,7 +65,6 @@ install(DIRECTORY
 )
 
 install(TARGETS
-  simple_offboard
   trajectory_handler
   DESTINATION lib/${PROJECT_NAME}
 )

@@ -1,7 +1,0 @@
-float32 height
-float32 speed
-bool auto_arm
-bool blocking
----
-bool success
-string message
