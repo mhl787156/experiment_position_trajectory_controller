@@ -4,6 +4,25 @@ This project provides a simple position trajectory controller for ROS2, MAVROS a
 
 This package contains just the controller `position_trajectory_controller` and utilises the `simple_offboard_msgs` for backwards compatibility. 
 
+## Usage and Running
+
+The most straightforward method is using docker in conjunction with the docker-compose scripts in ProjectStarling or Murmuration
+
+```
+docker run -it --rm --net=host uobflightlabstarling/position_trajectory_controller:latest
+```
+
+This library can also be recursively cloned in your local ros2 workspace and built. 
+```
+cd ros_ws/src
+git clone --recursive https://github.com/StarlingUAS/position_trajectory_controller.git 
+cd ../..
+colcon build --packages-select position_trajectory_controller
+ros2 launch position_trajectory_controller position_trajectory_controller.launch.xml
+```
+
+A kubernetes daemonset is provided for use with the flight arena. 
+
 ## *position_trajectory_controller* Node
 This node is intended to simplify the programming of autonomous drone flight (`OFFBOARD` flight mode). It allows the setting of desired flight tasks and automatically transforms coordinates between frames. It is a high level system for interacting with the flight controller.
 
