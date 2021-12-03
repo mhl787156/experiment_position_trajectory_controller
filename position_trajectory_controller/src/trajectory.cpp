@@ -27,6 +27,7 @@ TrajectoryHandler::TrajectoryHandler() :
 
     // Get Parameters
     this->get_parameter_or("execution_frequency", this->execution_frequency, 10.0); // hz
+    this->get_parameter_or("transform_broadcast_frequency", this->transform_broadcast_frequency, 10.0); // hz
     this->get_parameter_or("end_extra_time", this->end_extra_time, 5.0); // seconds
     this->get_parameter_or("location_arrival_epsilon", this->location_arrival_epsilon, 0.1); // meters
     this->get_parameter_or("ground_threshold", this->ground_threshold, 0.2); // meters
@@ -46,6 +47,7 @@ TrajectoryHandler::TrajectoryHandler() :
     this->mission_start_receive_timeout = this->get_timeout_parameter("mission_start_receive_timeout", 3.0);
 
     // Initialise tf2
+    this->local_position_last_broadcast_time = this->now();
     this->transform_broadcaster = std::make_shared<tf2_ros::TransformBroadcaster>(this);
 
     // Initialise Service Clients
@@ -83,10 +85,8 @@ TrajectoryHandler::TrajectoryHandler() :
             if(!this->vehicle_state){RCLCPP_INFO(this->get_logger(), "Initial mavros state received"); this->prev_vehicle_state = this->vehicle_state;}
             this->vehicle_state = s;}, sub_opt);
     this->local_position_sub =  this->create_subscription<geometry_msgs::msg::PoseStamped>(
-        "mavros/local_position/pose", 10, [this](const geometry_msgs::msg::PoseStamped::SharedPtr s){
-            this->last_received_vehicle_local_position = this->now(); 
-            if(!this->vehicle_local_position){RCLCPP_INFO(this->get_logger(), "Initial vehicle local position received");}
-            this->vehicle_local_position = s;}, sub_opt);
+        "mavros/local_position/pose", 10, 
+        std::bind(&TrajectoryHandler::handleLocalPosition, this, std::placeholders::_1), sub_opt);
 
     // Initialise Publishers
     this->setpoint_position_pub = this->create_publisher<geometry_msgs::msg::PoseStamped>("mavros/setpoint_position/local", 1);
@@ -122,6 +122,33 @@ inline std::chrono::duration<double> TrajectoryHandler::get_timeout_parameter(st
     this->get_parameter_or(name, t, default_param);
     if(invert) {return std::chrono::duration<double>(1.0/t);}
     return std::chrono::duration<double>(t);
+}
+
+void TrajectoryHandler::handleLocalPosition(const geometry_msgs::msg::PoseStamped::SharedPtr s) {
+    auto stamp = this->now();
+    this->last_received_vehicle_local_position = this->now(); 
+
+    if(!this->vehicle_local_position){
+        RCLCPP_INFO(this->get_logger(), "Initial vehicle local position received");
+    }
+
+    this->vehicle_local_position = s;
+
+    // Rate limit to rate specified
+    if(stamp - this->local_position_last_broadcast_time > std::chrono::duration<double>(1.0/this->transform_broadcast_frequency)) {
+        // Broadcast local position
+        geometry_msgs::msg::TransformStamped tf;
+        tf.child_frame_id = this->vehicle_frame_id;
+        tf.transform.rotation = this->vehicle_local_position->pose.orientation;
+        tf.transform.translation.x = this->vehicle_local_position->pose.position.x;
+        tf.transform.translation.y = this->vehicle_local_position->pose.position.y;
+        tf.transform.translation.z = this->vehicle_local_position->pose.position.z;
+        tf.header.frame_id = this->frame_id;
+        tf.header.stamp = stamp;
+        this->transform_broadcaster->sendTransform(tf);
+
+        this->local_position_last_broadcast_time = stamp;
+    }
 }
 
 void TrajectoryHandler::reset(){

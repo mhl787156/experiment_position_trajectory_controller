@@ -120,7 +120,6 @@ class TrajectoryHandler : public rclcpp::Node
         void reset();
         void resetExecutionTimer(bool restart=true);
         void stateMachine(const rclcpp::Time& stamp);
-
         void emergency_stop();
 
         // State machine functions
@@ -138,6 +137,7 @@ class TrajectoryHandler : public rclcpp::Node
         bool vehicleNearLocation(const geometry_msgs::msg::Pose& location);
         void printVehiclePosition();
         void sendSetpointPosition(const rclcpp::Time& stamp, const double x, const double y, const double z, const double yaw=0.0);
+        void handleLocalPosition(const geometry_msgs::msg::PoseStamped::SharedPtr s);
 
         // Mission parameters
         std::shared_ptr<rclcpp::Time> mission_start_receive_time;
@@ -158,6 +158,7 @@ class TrajectoryHandler : public rclcpp::Node
         // External parameters
         std::string frame_id = "map";           // Default Frame of reference
         double execution_frequency;             // Setpoint frequency
+        double transform_broadcast_frequency;  // Transform Broadcast frequency
         double end_extra_time;                  // Extra time to give after finishing trajectory
         double location_arrival_epsilon;        // Determine if vehicle is near setpoint
         double ground_threshold;                // Below ground threshold indicates that vehicle has landed
@@ -193,6 +194,7 @@ class TrajectoryHandler : public rclcpp::Node
         // TF Broadcasting
         string vehicle_frame_id;
         string setpoint_frame_id;
+        rclcpp::Time local_position_last_broadcast_time;
         std::shared_ptr<tf2_ros::TransformBroadcaster> transform_broadcaster;
 
         // Publishers
