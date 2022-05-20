@@ -25,12 +25,21 @@ RUN . /opt/ros/${ROS_DISTRO}/setup.sh \
     && colcon build --packages-select simple_offboard_msgs \
     && rm -r build
 
+# Build the messages
+COPY synchronous_msgs /ros_ws/src/synchronous_msgs
+RUN . /opt/ros/${ROS_DISTRO}/setup.sh \
+    && export CMAKE_PREFIX_PATH=$AMENT_PREFIX_PATH:$CMAKE_PREFIX_PATH \
+    && cd /ros_ws \
+    && colcon build --packages-select synchronous_msgs\
+    && rm -r build
+
 COPY position_trajectory_controller /ros_ws/src/position_trajectory_controller
 COPY .git /ros_ws/src/.git
 COPY .gitmodules /ros_ws/src/.gitmodules
 
 # Build the package
 RUN . /opt/ros/${ROS_DISTRO}/setup.sh \
+    && . /ros_ws/install/setup.sh \
     && export CMAKE_PREFIX_PATH=$AMENT_PREFIX_PATH:$CMAKE_PREFIX_PATH \
     && cd /ros_ws \
     && colcon build --packages-select position_trajectory_controller \

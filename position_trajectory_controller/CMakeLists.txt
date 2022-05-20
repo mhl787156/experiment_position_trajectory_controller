@@ -32,6 +32,7 @@ find_package(trajectory_msgs REQUIRED)
 find_package(Boost REQUIRED COMPONENTS system)
 find_package(GeographicLib REQUIRED)
 find_package(simple_offboard_msgs REQUIRED)
+find_package(synchronous_msgs REQUIRED)
 
 add_subdirectory(external/libInterpolate)
 
@@ -41,7 +42,7 @@ set(HEADER_FILES include/trajectory.hpp)
 add_executable(trajectory_handler src/trajectory.cpp ${HEADER_FILES})
 ament_target_dependencies(trajectory_handler
   rclcpp std_msgs std_srvs trajectory_msgs simple_offboard_msgs
-  mavros_msgs geometry_msgs tf2 tf2_ros
+  mavros_msgs geometry_msgs tf2 tf2_ros synchronous_msgs
 )
 target_include_directories(trajectory_handler PRIVATE include)
 target_link_libraries( trajectory_handler libInterpolate::Interpolate )

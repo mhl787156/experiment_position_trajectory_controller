@@ -1,0 +1,2 @@
+string delayed_vehicle_id
+builtin_interfaces/Duration delay

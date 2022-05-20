@@ -1,0 +1,4 @@
+string vehicle_id
+builtin_interfaces/Time expected_arrival_time
+builtin_interfaces/Time actual_arrival_time
+builtin_interfaces/Duration delay
