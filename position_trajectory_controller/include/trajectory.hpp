@@ -39,6 +39,9 @@
 
 #include "simple_offboard_msgs/srv/submit_trajectory.hpp"
 
+#include "synchronous_msgs/msg/notify_delay.hpp"
+#include "synchronous_msgs/msg/notify_pause.hpp"
+
 #include "mavros_msgs/msg/state.hpp"
 #include "mavros_msgs/msg/position_target.hpp"
 #include "mavros_msgs/msg/attitude_target.hpp"
@@ -53,6 +56,7 @@
 #include <libInterpolate/AnyInterpolator.hpp>
 
 using namespace std;
+using namespace rclcpp;
 
 #define PX4_OFFBOARD_MODE "OFFBOARD"
 #define PX4_LAND_MODE "AUTO.LAND"
@@ -68,15 +72,15 @@ class State{
             MAKESAFE,
             TERMINATE,
         };
-    
+
     State() = default;
     constexpr State(Value state) : value(state) { }
-    
+
     // Allow switch and comparisons.
     constexpr operator Value() const { return value; }
 
     // Prevent usage: if(fruit)
-    explicit operator bool() = delete;        
+    explicit operator bool() = delete;
 
     constexpr bool operator==(State a) const { return value == a.value; }
     constexpr bool operator!=(State a) const { return value != a.value; }
@@ -123,21 +127,24 @@ class TrajectoryHandler : public rclcpp::Node
         void emergency_stop();
 
         // State machine functions
-        bool smChecks(const rclcpp::Time& stamp);  
-        bool smOffboardArmed(const rclcpp::Time& stamp);      
+        bool smChecks(const rclcpp::Time& stamp);
+        bool smOffboardArmed(const rclcpp::Time& stamp);
         bool smTakeoffVehicle(const rclcpp::Time& stamp);
         bool smLandVehicle(const rclcpp::Time& stamp);
         bool smMakeSafe(const rclcpp::Time& stamp);
         bool smExecuteTrajectory(const rclcpp::Time& stamp);
         void gotoTrajectoryPoint(const trajectory_msgs::msg::JointTrajectoryPoint& point);
-        
+
         // Helper utility functions
         std::chrono::duration<double> get_timeout_parameter(string name, double default_param, bool invert = false);
         void sendSetModeRequest(string custom_mode);
         bool vehicleNearLocation(const geometry_msgs::msg::Pose& location);
+        bool vehicleNearCoordinate(const float x, const float y, const float z);
         void printVehiclePosition();
         void sendSetpointPosition(const rclcpp::Time& stamp, const double x, const double y, const double z, const double yaw=0.0);
         void handleLocalPosition(const geometry_msgs::msg::PoseStamped::SharedPtr s);
+
+        void handleNotifyPause(const synchronous_msgs::msg::NotifyPause::SharedPtr msg);
 
         // Mission parameters
         std::shared_ptr<rclcpp::Time> mission_start_receive_time;
@@ -146,13 +153,13 @@ class TrajectoryHandler : public rclcpp::Node
         // Execution parameters
         std::atomic<bool> executing_trajectory; // Is a trajectory being executed
         rclcpp::Time start_time;                // Trajectory Start time (after takeoff)
-        double max_time_sec;                    // The end time of the trajectory              
+        double max_time_sec;                    // The end time of the trajectory
         rclcpp::TimerBase::SharedPtr execution_timer;   // Timer which runs the execution state machine
         State execution_state;  // Keep Track of state
 
         // Interpolators
         std::vector<double> times;
-        std::vector<std::vector<double>> demands;
+        std::vector<std::vector<double>> demands; // x, y, z and maybe yaw
         std::vector<_1D::AnyInterpolator<double>> interpolators;
 
         // External parameters
@@ -166,7 +173,7 @@ class TrajectoryHandler : public rclcpp::Node
         // Timeouts and timing
         std::chrono::duration<double> local_position_timeout;
         std::chrono::duration<double> state_timeout;
-        
+
         std::shared_ptr<rclcpp::Time> offboard_attempt_start;
         std::chrono::duration<double> offboard_timeout;
         std::shared_ptr<rclcpp::Time> arming_attempt_start;
@@ -179,9 +186,16 @@ class TrajectoryHandler : public rclcpp::Node
 
         std::chrono::duration<double> mission_start_receive_timeout;
 
+        // Sync Parameters
+        rclcpp::Duration next_delay = rclcpp::Duration::from_seconds(0.0);
+        rclcpp::Duration sync_cumulative_delay = rclcpp::Duration::from_seconds(0.0);
+        std::map<string, rclcpp::Duration> vehicle_delays;
+        uint8_t current_task_idx;
+        std::shared_ptr<rclcpp::Time> sync_wait_until;
+
         // Takeoff and Landing parameters
         trajectory_msgs::msg::JointTrajectoryPoint takeoff_location;
-        
+
 
         // Vehicle State
         rclcpp::Time last_received_vehicle_state;
@@ -199,6 +213,7 @@ class TrajectoryHandler : public rclcpp::Node
 
         // Publishers
         rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr       setpoint_position_pub;
+        rclcpp::Publisher<synchronous_msgs::msg::NotifyDelay>::SharedPtr       sync_delay_pub;
 
         // Subscriptions
         rclcpp::Subscription<std_msgs::msg::Empty>::SharedPtr               mission_start_sub;
@@ -206,11 +221,12 @@ class TrajectoryHandler : public rclcpp::Node
         rclcpp::Subscription<std_msgs::msg::Empty>::SharedPtr               estop_sub;
         rclcpp::Subscription<mavros_msgs::msg::State>::SharedPtr         state_sub;
         rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr                     local_position_sub;
+        rclcpp::Subscription<synchronous_msgs::msg::NotifyPause>::SharedPtr                     sync_pause_sub;
 
         // Clients
         rclcpp::Client<mavros_msgs::srv::CommandBool>::SharedPtr        mavros_arming_srv;
         rclcpp::Client<mavros_msgs::srv::SetMode>::SharedPtr            mavros_set_mode_srv;
-        rclcpp::Client<mavros_msgs::srv::CommandLong>::SharedPtr        mavros_command_srv;       
+        rclcpp::Client<mavros_msgs::srv::CommandLong>::SharedPtr        mavros_command_srv;
 
         // Service
         rclcpp::Service<simple_offboard_msgs::srv::SubmitTrajectory>::SharedPtr      traj_serv;

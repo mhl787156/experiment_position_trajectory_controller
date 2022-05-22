@@ -32,7 +32,7 @@ TrajectoryHandler::TrajectoryHandler() :
     this->get_parameter_or("location_arrival_epsilon", this->location_arrival_epsilon, 0.1); // meters
     this->get_parameter_or("ground_threshold", this->ground_threshold, 0.2); // meters
 
-    this->get_parameter_or("frame_id", this->frame_id, string("map")); 
+    this->get_parameter_or("frame_id", this->frame_id, string("map"));
     this->get_parameter_or("vehicle_frame_id", this->vehicle_frame_id, string("vehicle")); // meters
     this->get_parameter_or("setpoint_frame_id", this->setpoint_frame_id, string("setpoint")); // meters
 
@@ -43,7 +43,7 @@ TrajectoryHandler::TrajectoryHandler() :
     this->offboard_timeout = this->get_timeout_parameter("offboard_timeout", 20.0);
 	this->land_timeout = this->get_timeout_parameter("land_timeout", 60.0);
     this->takeoff_timeout = this->get_timeout_parameter("takeoff_timeout", 60.0);
-	
+
     this->mission_start_receive_timeout = this->get_timeout_parameter("mission_start_receive_timeout", 3.0);
 
     // Initialise tf2
@@ -59,37 +59,42 @@ TrajectoryHandler::TrajectoryHandler() :
     auto sub_opt = rclcpp::SubscriptionOptions();
     sub_opt.callback_group = this->callback_group_subscribers_;
     this->mission_start_sub = this->create_subscription<std_msgs::msg::Empty>(
-        "/mission_start", 1, [this](const std_msgs::msg::Empty::SharedPtr s){(void)s; 
+        "/mission_start", 1, [this](const std_msgs::msg::Empty::SharedPtr s){(void)s;
         this->mission_start_receive_time = std::make_shared<rclcpp::Time>(this->now());
         RCLCPP_INFO(this->get_logger(), "Mission Start Received");}, sub_opt);
     this->mission_abort_sub = this->create_subscription<std_msgs::msg::Empty>(
-        "/mission_abort", 1, [this](const std_msgs::msg::Empty::SharedPtr s){(void)s; 
+        "/mission_abort", 1, [this](const std_msgs::msg::Empty::SharedPtr s){(void)s;
         if(!mission_stop_received){
-            this->execution_state = State::STOP; 
+            this->execution_state = State::STOP;
             mission_stop_received = true;
             RCLCPP_INFO(this->get_logger(), "Mission Abort Received, Stopping");
         }}, sub_opt);
     this->estop_sub = this->create_subscription<std_msgs::msg::Empty>(
-        "/emergency_stop", 1, [this](const std_msgs::msg::Empty::SharedPtr s){(void)s; 
+        "/emergency_stop", 1, [this](const std_msgs::msg::Empty::SharedPtr s){(void)s;
         if(!mission_stop_received){
-            this->execution_state = State::STOP; 
+            this->execution_state = State::STOP;
             mission_stop_received = true;
             RCLCPP_ERROR(this->get_logger(), "EMERGENCY STOP RECIEVED, Stopping");
         }
         this->emergency_stop();}, sub_opt);
-    
+
     // Mavros Subscribers
     this->state_sub =   this->create_subscription<mavros_msgs::msg::State>(
         "mavros/state", 10, [this](const mavros_msgs::msg::State::SharedPtr s){
-            this->last_received_vehicle_state = this->now(); 
+            this->last_received_vehicle_state = this->now();
             if(!this->vehicle_state){RCLCPP_INFO(this->get_logger(), "Initial mavros state received"); this->prev_vehicle_state = this->vehicle_state;}
             this->vehicle_state = s;}, sub_opt);
     this->local_position_sub =  this->create_subscription<geometry_msgs::msg::PoseStamped>(
-        "mavros/local_position/pose", 10, 
+        "mavros/local_position/pose", 10,
         std::bind(&TrajectoryHandler::handleLocalPosition, this, std::placeholders::_1), sub_opt);
+
+    this->sync_pause_sub =  this->create_subscription<synchronous_msgs::msg::NotifyPause>(
+        "notify_pause", 10,
+        std::bind(&TrajectoryHandler::handleNotifyPause, this, std::placeholders::_1), sub_opt);
 
     // Initialise Publishers
     this->setpoint_position_pub = this->create_publisher<geometry_msgs::msg::PoseStamped>("mavros/setpoint_position/local", 1);
+    this->sync_delay_pub = this->create_publisher<synchronous_msgs::msg::NotifyDelay>("notify_delay", 1);
 
     // Initialise Trajectory Service
     this->traj_serv = this->create_service<simple_offboard_msgs::srv::SubmitTrajectory>("submit_trajectory",
@@ -126,7 +131,7 @@ inline std::chrono::duration<double> TrajectoryHandler::get_timeout_parameter(st
 
 void TrajectoryHandler::handleLocalPosition(const geometry_msgs::msg::PoseStamped::SharedPtr s) {
     auto stamp = this->now();
-    this->last_received_vehicle_local_position = this->now(); 
+    this->last_received_vehicle_local_position = this->now();
 
     if(!this->vehicle_local_position){
         RCLCPP_INFO(this->get_logger(), "Initial vehicle local position received");
@@ -151,6 +156,14 @@ void TrajectoryHandler::handleLocalPosition(const geometry_msgs::msg::PoseStampe
     }
 }
 
+void TrajectoryHandler::handleNotifyPause(const synchronous_msgs::msg::NotifyPause::SharedPtr msg) {
+    // Received a delay from another vehicle. Store this delay.
+    Duration delay = Duration(msg->delay);
+    this->vehicle_delays.insert(std::make_pair(msg->delayed_vehicle_id, delay));
+
+    RCLCPP_INFO(this->get_logger(), "Received pause notification from " + msg->delayed_vehicle_id + " delayed by " + to_string(delay.seconds()) + "." + to_string(delay.nanoseconds()));
+}
+
 void TrajectoryHandler::reset(){
     // Clear Parameters
     this->mission_stop_received = false;
@@ -162,6 +175,13 @@ void TrajectoryHandler::reset(){
     this->arming_attempt_start = nullptr;
     this->takeoff_attempt_start = nullptr;
     this->land_attempt_start = nullptr;
+
+    // Reset Sync
+    this->next_delay = std::chrono::duration<double>(0.0);
+    this->sync_cumulative_delay = std::chrono::duration<double>(0.0);
+    this->vehicle_delays.clear();
+    this->current_task_idx = 0;
+    this->sync_wait_until = nullptr;
 
     // Reset vehicle setpoint to zero
     this->vehicle_setpoint = std::make_shared<geometry_msgs::msg::PoseStamped>();
@@ -179,7 +199,7 @@ void TrajectoryHandler::reset(){
 
     // Stop Execution Timer
     this->resetExecutionTimer(false);
-   
+
     RCLCPP_INFO(this->get_logger(), "Reset Internal Parameters and Trajectory Executor");
 }
 
@@ -328,9 +348,9 @@ void TrajectoryHandler::stateMachine(const rclcpp::Time& stamp){
             this->reset();
             return;
         }
-    
+
     try{
-        
+
         // Core saftey checks
         // Will trigger early failure if not in initialisation phase.
         bool checks = this->smChecks(stamp);
@@ -338,7 +358,7 @@ void TrajectoryHandler::stateMachine(const rclcpp::Time& stamp){
             this->execution_state = State::STOP;
             RCLCPP_INFO(this->get_logger(), "State machine checks failed, switching to STOP State");
         }
-    
+
         switch(this->execution_state) {
             case State::INIT:
                 // Initialisation steps before takeoff and execution
@@ -365,7 +385,7 @@ void TrajectoryHandler::stateMachine(const rclcpp::Time& stamp){
                     this->execution_state = State::LAND;
                 }
                 break;
-            
+
             case State::STOP:
                 // Perform some actions related to early stopping due to abort or estop, then go to land
                 this->execution_state = State::LAND;
@@ -459,7 +479,7 @@ bool TrajectoryHandler::smOffboardArmed(const rclcpp::Time& stamp) {
 }
 
 bool TrajectoryHandler::smMakeSafe(const rclcpp::Time& stamp) {
-            
+
     // DISARM vehicle
     if(this->vehicle_state->armed) {
         // Not armed, send armed message
@@ -486,7 +506,7 @@ bool TrajectoryHandler::smMakeSafe(const rclcpp::Time& stamp) {
 }
 
 bool TrajectoryHandler::smTakeoffVehicle(const rclcpp::Time& stamp) {
-  
+
     // Publish takeoff position as a setpoint
     this->sendSetpointPosition(stamp,
         this->takeoff_location.positions[0],
@@ -506,7 +526,7 @@ bool TrajectoryHandler::smTakeoffVehicle(const rclcpp::Time& stamp) {
             );
         } else if (stamp - *this->takeoff_attempt_start > this->takeoff_timeout) {
             throw std::runtime_error("TAKEOFF timeout");
-        } 
+        }
         return false;
     } else {
         this->takeoff_attempt_start = nullptr;
@@ -536,52 +556,100 @@ bool TrajectoryHandler::smExecuteTrajectory(const rclcpp::Time& stamp) {
     // Get time elapsed since start of trajectory
     rclcpp::Duration time_elapsed = stamp - this->start_time;
     double time_elapsed_sec = time_elapsed.seconds();
-    bool completed = false;
 
-    // Is time elapsed after the maximum time in the trajectory
-    if (time_elapsed_sec > this->max_time_sec) {
-        // Then stop update loop and exit
-        RCLCPP_INFO(this->get_logger(), "Reached final trajectory time");
-        time_elapsed_sec = this->max_time_sec;
-        completed = true;
+    double task_x = this->demands[0][this->current_task_idx];
+    double task_y = this->demands[1][this->current_task_idx];
+    double task_z = this->demands[2][this->current_task_idx];
+
+    // First check if arrived at currently assigned task
+    if (this->vehicleNearCoordinate(task_x, task_y, task_z)) {
+
+        // If current task is final task and arrived at final task coordinates, we end
+        if (this->current_task_idx >= this->times.size() - 1) {
+            // Then stop update loop and exit
+            RCLCPP_INFO(this->get_logger(), "Reached final trajectory time");
+            return true;
+        }
+
+        Duration planned_arrival_time = Duration::from_seconds(this->times[this->current_task_idx]) + this->sync_cumulative_delay; // In real time
+
+        if (time_elapsed < planned_arrival_time) {
+            //// If arrived according to plan or earlier all ois good continue
+        } else {
+            //// If late, calculate delay to be propogated, send delay to other vehicles. Set own delay
+            // Check if vehicle already waiting
+            if(!this->sync_wait_until) {
+                //If vehicle is not waiting
+                Duration delay = time_elapsed - planned_arrival_time;
+                // Send delay to other vehicles
+                synchronous_msgs::msg::NotifyDelay dmsg;
+                dmsg.delay = delay;
+                dmsg.vehicle_id = this->vehicle_frame_id;
+                dmsg.expected_arrival_time = this->start_time + planned_arrival_time;
+                dmsg.actual_arrival_time = this->start_time;
+                this->sync_delay_pub->publish(dmsg);
+                // Caluclate instaneous delay
+                Duration max_delay = max_element(this->vehicle_delays.begin(), this->vehicle_delays.end())->second;
+                Duration i_delay = max_delay - delay;
+                // Update cumulative delay
+                this->sync_cumulative_delay = this->sync_cumulative_delay + i_delay + delay;
+                // Set wait until
+                this->sync_wait_until = std::make_shared<Time>(stamp + i_delay);
+            }
+        }
     }
+
+    // Setup current interpolator lookup time if currently in transit, or delay is completed
+    double interpolator_lookup_time_sec = (time_elapsed - this->sync_cumulative_delay).seconds();
+    double interpolator_planned_arrival_time = this->times[this->current_task_idx];
+
+    // Check if a wait has been triggered
+    if (this->sync_wait_until) {
+        if(stamp < *this->sync_wait_until) {
+            // if a delay is required, send the same interpolator time elapsed
+            interpolator_lookup_time_sec = interpolator_planned_arrival_time;
+        } else {
+            // Otherwise delay completed move onto next task, reset and increase time elapsed
+            this->sync_wait_until = nullptr;
+            this->current_task_idx += 1;
+        }
+    }
+    interpolator_lookup_time_sec = min(interpolator_lookup_time_sec, interpolator_planned_arrival_time);
 
     // Publish position as a setpoint
     this->sendSetpointPosition(stamp,
-        this->interpolators[0](time_elapsed_sec),
-        this->interpolators[1](time_elapsed_sec),
-        this->interpolators[2](time_elapsed_sec),
-        this->interpolators.size()>3?this->interpolators[3](time_elapsed_sec):0.0
+        this->interpolators[0](interpolator_lookup_time_sec),
+        this->interpolators[1](interpolator_lookup_time_sec),
+        this->interpolators[2](interpolator_lookup_time_sec),
+        this->interpolators.size()>3?this->interpolators[3](interpolator_lookup_time_sec):0.0
     );
 
-    RCLCPP_INFO(this->get_logger(), "Sent request (t=%f) (%f, %f, %f)", 
-        time_elapsed_sec, 
+    RCLCPP_INFO(this->get_logger(), "Sent request (t=%f) (%f, %f, %f)",
+        time_elapsed_sec,
         this->vehicle_setpoint->pose.position.x,
         this->vehicle_setpoint->pose.position.y,
         this->vehicle_setpoint->pose.position.z
     );
 
-    // If Reached Maximum time (completed), and drone is on the final location, then continue
-    // May need a timeout just in case 
-    if(completed && this->vehicleNearLocation(this->vehicle_setpoint->pose)) {
-        RCLCPP_INFO(this->get_logger(), "Trajectory Completed");
-        return true;
-    }
-
     return false;
 }
 
 bool TrajectoryHandler::vehicleNearLocation(const geometry_msgs::msg::Pose& location) {
+    return this->vehicleNearCoordinate(location.position.x, location.position.y, location.position.z);
+}
+
+bool TrajectoryHandler::vehicleNearCoordinate(const float x, const float y, const float z) {
     if(!this->vehicle_local_position) {
         throw std::runtime_error("Vehicle location not received");
     }
     auto pose = this->vehicle_local_position->pose;
 
     // Right now only match coordinate and not orientation
-    bool zcomp = fabs(pose.position.z - location.position.z) < this->location_arrival_epsilon;
-    bool xcomp = fabs(pose.position.x - location.position.x) < this->location_arrival_epsilon;
-    bool ycomp = fabs(pose.position.y - location.position.y) < this->location_arrival_epsilon;
-    return xcomp && ycomp && zcomp;
+    float zcomp = pow(pose.position.z - z, 2.0);
+    float xcomp = pow(pose.position.x - x, 2.0);
+    float ycomp = pow(pose.position.y - y, 2.0);
+    float euc = sqrt(zcomp + xcomp + ycomp);
+    return euc < this->location_arrival_epsilon;
 }
 
 void TrajectoryHandler::sendSetModeRequest(string custom_mode) {
@@ -605,8 +673,8 @@ void TrajectoryHandler::sendSetpointPosition(const rclcpp::Time& stamp, const do
     this->vehicle_setpoint->pose.position.x = x;
     this->vehicle_setpoint->pose.position.y = y;
     this->vehicle_setpoint->pose.position.z = z;
-    
-    tf2::Quaternion quat; 
+
+    tf2::Quaternion quat;
     quat.setRPY(0.0, 0.0, yaw);
     this->vehicle_setpoint->pose.orientation = tf2::toMsg(quat);
 
