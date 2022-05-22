@@ -94,7 +94,7 @@ TrajectoryHandler::TrajectoryHandler() :
 
     // Initialise Publishers
     this->setpoint_position_pub = this->create_publisher<geometry_msgs::msg::PoseStamped>("mavros/setpoint_position/local", 1);
-    this->sync_delay_pub = this->create_publisher<synchronous_msgs::msg::NotifyDelay>("notify_delay", 1);
+    this->sync_delay_pub = this->create_publisher<synchronous_msgs::msg::NotifyDelay>("/sync/notify_delay", 1);
 
     // Initialise Trajectory Service
     this->traj_serv = this->create_service<simple_offboard_msgs::srv::SubmitTrajectory>("submit_trajectory",

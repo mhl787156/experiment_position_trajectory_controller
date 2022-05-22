@@ -6,6 +6,7 @@ BAKE:=docker buildx bake --builder default --load --set *.platform=$(BUILDX_HOST
 NETWORK?=bridge
 ENV?=
 BUILD_ARGS?=
+RUN_ARGS?=
 
 
 all: position_trajectory_controller
@@ -22,9 +23,9 @@ local-build-push:
 	docker buildx bake --builder mybuilder -f $(BAKE_SCRIPT) --push 4pl-controller
 
 run: position_trajectory_controller
-	docker run -it --rm --net=$(NETWORK) $(ENV) -e USE_SIMULATED_TIME=true uobflightlabstarling/position-trajectory-controller:latest
+	docker run -it --rm --net=$(NETWORK) $(ENV) -e USE_SIMULATED_TIME=true $(RUN_ARGS) uobflightlabstarling/position-trajectory-controller:latest
 
 run_bash: position_trajectory_controller
-	docker run -it --rm --net=$(NETWORK) -e USE_SIMULATED_TIME=true uobflightlabstarling/position-trajectory-controller:latest bash
+	docker run -it --rm --net=$(NETWORK) -e USE_SIMULATED_TIME=true $(RUN_ARGS) uobflightlabstarling/position-trajectory-controller:latest bash
 
 .PHONY: all position_trajectory_controller run run_bash

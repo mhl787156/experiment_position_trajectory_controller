@@ -45,6 +45,15 @@ RUN . /opt/ros/${ROS_DISTRO}/setup.sh \
     && colcon build --packages-select position_trajectory_controller \
     && rm -r build
 
+# Build the package
+COPY sync_monitor /ros_ws/src/sync_monitor
+RUN . /opt/ros/${ROS_DISTRO}/setup.sh \
+    && . /ros_ws/install/setup.sh \
+    && export CMAKE_PREFIX_PATH=$AMENT_PREFIX_PATH:$CMAKE_PREFIX_PATH \
+    && cd /ros_ws \
+    && colcon build --packages-select sync_monitor \
+    && rm -r build
+
 COPY run.sh .
 
 CMD ["./run.sh"]
