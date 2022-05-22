@@ -1,5 +1,8 @@
 #!/bin/bash
-source /etc/starling/vehicle.config
+if [[ -f "/etc/starling/vehicle.config" ]]; then
+    source "/etc/starling/vehicle.config"
+fi
+
 
 if [ ! -v $VEHICLE_MAVLINK_SYSID ]; then
     export VEHICLE_MAVLINK_SYSID=$VEHICLE_MAVLINK_SYSID
@@ -9,4 +12,8 @@ else
     echo "VEHICLE_MAVLINK_SYSID not set, default to 1"
 fi
 
-ros2 launch position_trajectory_controller position_trajectory_controller.launch.xml
+if [ ! -v $RUN_MONITOR ]; then
+    ros2 run sync_monitor monitor
+else
+    ros2 launch position_trajectory_controller position_trajectory_controller.launch.xml
+fi

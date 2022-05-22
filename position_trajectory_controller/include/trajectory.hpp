@@ -163,6 +163,7 @@ class TrajectoryHandler : public rclcpp::Node
         std::vector<_1D::AnyInterpolator<double>> interpolators;
 
         // External parameters
+        std::string vehicle_id;
         std::string frame_id = "map";           // Default Frame of reference
         double execution_frequency;             // Setpoint frequency
         double transform_broadcast_frequency;  // Transform Broadcast frequency

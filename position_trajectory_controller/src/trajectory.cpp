@@ -32,6 +32,7 @@ TrajectoryHandler::TrajectoryHandler() :
     this->get_parameter_or("location_arrival_epsilon", this->location_arrival_epsilon, 0.1); // meters
     this->get_parameter_or("ground_threshold", this->ground_threshold, 0.2); // meters
 
+    this->get_parameter_or("vehicle_id", this->vehicle_id, string("vehicle"));
     this->get_parameter_or("frame_id", this->frame_id, string("map"));
     this->get_parameter_or("vehicle_frame_id", this->vehicle_frame_id, string("vehicle")); // meters
     this->get_parameter_or("setpoint_frame_id", this->setpoint_frame_id, string("setpoint")); // meters
@@ -159,7 +160,10 @@ void TrajectoryHandler::handleLocalPosition(const geometry_msgs::msg::PoseStampe
 void TrajectoryHandler::handleNotifyPause(const synchronous_msgs::msg::NotifyPause::SharedPtr msg) {
     // Received a delay from another vehicle. Store this delay.
     Duration delay = Duration(msg->delay);
-    this->vehicle_delays.insert(std::make_pair(msg->delayed_vehicle_id, delay));
+
+    // Insert or replace with new delay
+    auto const result = this->vehicle_delays.insert(std::make_pair(msg->delayed_vehicle_id, delay));
+    if (not result.second) { result.first->second = delay; }
 
     RCLCPP_INFO(this->get_logger(), "Received pause notification from " + msg->delayed_vehicle_id + " delayed by " + to_string(delay.seconds()) + "." + to_string(delay.nanoseconds()));
 }
@@ -584,7 +588,7 @@ bool TrajectoryHandler::smExecuteTrajectory(const rclcpp::Time& stamp) {
                 // Send delay to other vehicles
                 synchronous_msgs::msg::NotifyDelay dmsg;
                 dmsg.delay = delay;
-                dmsg.vehicle_id = this->vehicle_frame_id;
+                dmsg.vehicle_id = this->vehicle_id;
                 dmsg.expected_arrival_time = this->start_time + planned_arrival_time;
                 dmsg.actual_arrival_time = this->start_time;
                 this->sync_delay_pub->publish(dmsg);

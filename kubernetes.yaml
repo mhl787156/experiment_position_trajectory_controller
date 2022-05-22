@@ -42,3 +42,34 @@ spec:
         hostPath:
           path: /etc/starling/vehicle.config
           type: File
+---
+
+# Central montior
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sync-monitor
+spec:
+  selector:
+    matchLabels:
+      app:  sync-monitor
+  template:
+    metadata:
+      labels:
+        app: sync-monitor
+    spec:
+      hostNetwork: true
+      shareProcessNamespace: true
+      nodeSelector:
+        name: master
+      tolerations:
+      - key: node-role.kubernetes.io/master
+        operator: Exists
+        effect: NoSchedule
+      containers:
+      - name: sync-monitor
+        image: uobflightlabstarling/position-trajectory-controller
+        imagePullPolicy: Always
+        env:
+          - name: RUN_MONITOR
+            value: "true"
