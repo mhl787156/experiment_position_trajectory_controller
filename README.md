@@ -163,6 +163,21 @@ Once the takeoff is complete, the service will return to the caller. The traject
 Once the time elapsed matches the `time_from_start` of the final trajectory point, the vehicle will land whever it has gotten to.
 
 > **Note**: If the `time_from_start` are too short, then it is possible for the drone to never reach any of the points. It is recommended to give the vehicle a little more time to travel from one point to another.
+
+### Synchronisation
+
+It has been noticed that pure open loop path following by multi-drones often leads to drones flying into or close to each other due to lag in following given trajectories. 
+
+Therefore we devise a simple scheme to keep drones relatively in sync by delaying other vehicles when they complete a task. 
+
+1. The vehicle is detected to arrive at its current assigned waypoint. 
+2. If a vehicle detects it is late (with respect to the orignal plan), it will send a delay message to the synchronisation monitor. The sync monitor will forward this delay to be stored by all other vehicles. 
+3. Then the vehicle calculates its 'instantaneous delay' or the amount of time it needs to wait to even out the service. This is defined as the maximum over all vehicles delays minus this vehicles current delay. 
+4. The vehicle then stays at the same waypoint until the calculated time of the vehicles cumulative delays, plus the vehicles instantaneous delay. 
+5. If the delay is completed (i.e. exceeded the delay's wait until time), the vehicle contiues to its next waypoint. 
+
+
+
 ## License
 
 This project is covered under the MIT License.
