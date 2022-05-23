@@ -66,6 +66,7 @@ class State{
         enum Value: uint8_t {
             INIT,
             TAKEOFF,
+            GOTOSTART,
             LAND,
             STOP,
             EXECUTE,
@@ -95,6 +96,8 @@ class State{
                 return "STATE::INIT";
             case TAKEOFF:
                 return "STATE::TAKEOFF";
+            case GOTOSTART:
+                return "STATE::GOTOSTART";
             case LAND:
                 return "STATE::LAND";
             case STOP:
@@ -130,10 +133,12 @@ class TrajectoryHandler : public rclcpp::Node
         bool smChecks(const rclcpp::Time& stamp);
         bool smOffboardArmed(const rclcpp::Time& stamp);
         bool smTakeoffVehicle(const rclcpp::Time& stamp);
+        bool smGoToStart(const rclcpp::Time& stamp);
         bool smLandVehicle(const rclcpp::Time& stamp);
         bool smMakeSafe(const rclcpp::Time& stamp);
         bool smExecuteTrajectory(const rclcpp::Time& stamp);
         void gotoTrajectoryPoint(const trajectory_msgs::msg::JointTrajectoryPoint& point);
+        bool missionGoPressed(const rclcpp::Time&stamp);
 
         // Helper utility functions
         std::chrono::duration<double> get_timeout_parameter(string name, double default_param, bool invert = false);
@@ -141,7 +146,8 @@ class TrajectoryHandler : public rclcpp::Node
         bool vehicleNearLocation(const geometry_msgs::msg::Pose& location);
         bool vehicleNearCoordinate(const float x, const float y, const float z);
         void printVehiclePosition();
-        void sendSetpointPosition(const rclcpp::Time& stamp, const double x, const double y, const double z, const double yaw=0.0);
+        void sendSetpointPositionCoordinate(const rclcpp::Time& stamp, const double x, const double y, const double z, const double yaw=0.0);
+        void sendSetpointPositionPose(const rclcpp::Time& stamp, const std::shared_ptr<geometry_msgs::msg::PoseStamped> pose);
         void handleLocalPosition(const geometry_msgs::msg::PoseStamped::SharedPtr s);
 
         void handleNotifyPause(const synchronous_msgs::msg::NotifyPause::SharedPtr msg);
@@ -195,7 +201,9 @@ class TrajectoryHandler : public rclcpp::Node
         std::shared_ptr<rclcpp::Time> sync_wait_until;
 
         // Takeoff and Landing parameters
-        trajectory_msgs::msg::JointTrajectoryPoint takeoff_location;
+        double takeoff_height;
+        trajectory_msgs::msg::JointTrajectoryPoint start_trajectory_location;
+        std::shared_ptr<geometry_msgs::msg::PoseStamped> takeoff_location;
 
 
         // Vehicle State
