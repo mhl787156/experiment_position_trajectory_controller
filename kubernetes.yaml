@@ -17,7 +17,8 @@ spec:
 
     spec:
       nodeSelector:
-        starling.dev/vehicle-class: rotary
+        # starling.dev/vehicle-class: rotary
+        starling.dev/type: vehicle
 
       tolerations:
       - key: "starling.dev/type"
@@ -73,3 +74,12 @@ spec:
         env:
           - name: RUN_MONITOR
             value: "true"
+      - name: starling-allocator
+        image: uobflightlabstarling/starling-allocator:latest
+        imagePullPolicy: Always
+      - name: starling-ui
+        image: mickeyli789/starling-ui-dashly:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 3000
+        - containerPort: 9090

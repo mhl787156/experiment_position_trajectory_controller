@@ -13,7 +13,7 @@ class Monitor(Node):
 
     def __init__(self):
         super().__init__('sync_monitor')
-        self.notify_delay_sub = self.create_subscription(NotifyDelay, '/sync/notify_pause', self.notify_delay_cb, 10)
+        self.notify_delay_sub = self.create_subscription(NotifyDelay, '/monitor/notify_delay', self.notify_delay_cb, 10)
         self.get_logger().info("Initialised")
 
     def notify_delay_cb(self, msg):
@@ -21,10 +21,9 @@ class Monitor(Node):
 
         p_msg = NotifyPause()
         p_msg.delayed_vehicle_id = msg.vehicle_id
-        p_msg.delayed_vehicle_id = msg.delay
+        p_msg.delay = msg.delay
 
-        current_vehicles = self.__get_current_vehicle_namespaces()
-        for vname in __get_current_vehicle_namespaces():
+        for vname in self.__get_current_vehicle_namespaces():
             if vname == msg.vehicle_id:
                 continue
 
