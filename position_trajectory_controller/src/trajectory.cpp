@@ -670,12 +670,12 @@ bool TrajectoryHandler::smExecuteTrajectory(const rclcpp::Time& stamp) {
             double time_left = (*this->sync_wait_until - stamp).seconds();
             // if a delay is required, send the same interpolator time elapsed
             interpolator_lookup_time_sec = interpolator_planned_arrival_time;
-            RCLCPP_INFO(this->get_logger(), "Delaying for another " + to_string(time_left) + " seconds");
+            RCLCPP_INFO(this->get_logger(), "Delaying for another %f seconds, lookup time of %f", time_left, interpolator_planned_arrival_time);
         } else {
-            RCLCPP_INFO(this->get_logger(), "Delay complete, moving to next task");
             // Otherwise delay completed move onto next task, reset and increase time elapsed
             this->sync_wait_until = nullptr;
             this->current_task_idx += 1;
+            RCLCPP_INFO(this->get_logger(), "Delay complete, moving to next task %d", this->current_task_idx);
         }
     }
     interpolator_lookup_time_sec = min(interpolator_lookup_time_sec, interpolator_planned_arrival_time);
@@ -713,6 +713,11 @@ bool TrajectoryHandler::vehicleNearCoordinate(const float x, const float y, cons
     float xcomp = pow(pose.position.x - x, 2.0);
     float ycomp = pow(pose.position.y - y, 2.0);
     float euc = sqrt(zcomp + xcomp + ycomp);
+    // RCLCPP_INFO(this->get_logger(), "Vehicle %f away from location with epsilon of %f", euc, this->location_arrival_epsilon);
+    // RCLCPP_INFO(this->get_logger(), "(%f, %f, %f), (%f, %f, %f)",
+    //     pose.position.x,pose.position.y,pose.position.z,x,y,z
+    // );
+
     return euc < this->location_arrival_epsilon;
 }
 
