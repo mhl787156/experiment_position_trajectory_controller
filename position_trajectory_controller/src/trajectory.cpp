@@ -670,15 +670,19 @@ bool TrajectoryHandler::smExecuteTrajectory(const rclcpp::Time& stamp) {
             double time_left = (*this->sync_wait_until - stamp).seconds();
             // if a delay is required, send the same interpolator time elapsed
             interpolator_lookup_time_sec = interpolator_planned_arrival_time;
-            RCLCPP_INFO(this->get_logger(), "Delaying for another %f seconds, lookup time of %f", time_left, interpolator_planned_arrival_time);
+            RCLCPP_INFO(this->get_logger(), "Delaying for another %f seconds, lookup time of %f, planned arrival at %f", time_left, interpolator_planned_arrival_time);
         } else {
             // Otherwise delay completed move onto next task, reset and increase time elapsed
             this->sync_wait_until = nullptr;
             this->current_task_idx += 1;
+            interpolator_planned_arrival_time = this->times[this->current_task_idx];
             RCLCPP_INFO(this->get_logger(), "Delay complete, moving to next task %d", this->current_task_idx);
         }
     }
     interpolator_lookup_time_sec = min(interpolator_lookup_time_sec, interpolator_planned_arrival_time);
+
+    // Edge case of immediate pause
+    if (interpolator_lookup_time_sec < 1e-5) {interpolator_lookup_time_sec = 1e-5;}
 
     // Publish position as a setpoint
     this->sendSetpointPositionCoordinate(stamp,
@@ -688,12 +692,12 @@ bool TrajectoryHandler::smExecuteTrajectory(const rclcpp::Time& stamp) {
         this->interpolators.size()>3?this->interpolators[3](interpolator_lookup_time_sec):0.0
     );
 
-    // RCLCPP_INFO(this->get_logger(), "Sent request (t=%f) (%f, %f, %f)",
-    //     time_elapsed_sec,
-    //     this->vehicle_setpoint->pose.position.x,
-    //     this->vehicle_setpoint->pose.position.y,
-    //     this->vehicle_setpoint->pose.position.z
-    // );
+    RCLCPP_INFO(this->get_logger(), "Sent request (t=%f) (%f, %f, %f)",
+        interpolator_lookup_time_sec,
+        this->vehicle_setpoint->pose.position.x,
+        this->vehicle_setpoint->pose.position.y,
+        this->vehicle_setpoint->pose.position.z
+    );
 
     return false;
 }
