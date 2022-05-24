@@ -46,7 +46,7 @@ TrajectoryHandler::TrajectoryHandler() :
 	this->land_timeout = this->get_timeout_parameter("land_timeout", 60.0);
     this->takeoff_timeout = this->get_timeout_parameter("takeoff_timeout", 60.0);
 
-    this->mission_start_receive_timeout = this->get_timeout_parameter("mission_start_receive_timeout", 3.0);
+    this->mission_start_receive_timeout = this->get_timeout_parameter("mission_start_receive_timeout", 0.5);
 
     // Initialise tf2
     this->local_position_last_broadcast_time = this->now();
@@ -166,7 +166,7 @@ void TrajectoryHandler::handleNotifyPause(const synchronous_msgs::msg::NotifyPau
     auto const result = this->vehicle_delays.insert(std::make_pair(msg->delayed_vehicle_id, delay));
     if (not result.second) { result.first->second = delay; }
 
-    RCLCPP_INFO(this->get_logger(), "Received pause notification from " + msg->delayed_vehicle_id + " delayed by " + to_string(delay.seconds()) + "." + to_string(delay.nanoseconds()));
+    RCLCPP_INFO(this->get_logger(), "Received pause notification from " + msg->delayed_vehicle_id + " delayed by " + to_string(delay.seconds()));
 }
 
 void TrajectoryHandler::reset(){
@@ -346,7 +346,7 @@ void TrajectoryHandler::submitTrajectory(std::shared_ptr<simple_offboard_msgs::s
 }
 
 bool TrajectoryHandler::missionGoPressed(const rclcpp::Time&stamp) {
-    return !this->mission_start_receive_time || stamp - *this->mission_start_receive_time > this->mission_start_receive_timeout;
+    return this->mission_start_receive_time && stamp - *this->mission_start_receive_time < this->mission_start_receive_timeout;
 }
 
 void TrajectoryHandler::stateMachine(const rclcpp::Time& stamp){
@@ -380,6 +380,7 @@ void TrajectoryHandler::stateMachine(const rclcpp::Time& stamp){
                     this->execution_state = State::TAKEOFF;
                 }
                 break;
+
             case State::TAKEOFF:
                 this->smOffboardArmed(stamp);
                 if(!this->smTakeoffVehicle(stamp)) {
@@ -390,6 +391,7 @@ void TrajectoryHandler::stateMachine(const rclcpp::Time& stamp){
                     this->execution_state = State::GOTOSTART;
                 }
                 break;
+
             case State::GOTOSTART:
                 this->smOffboardArmed(stamp);
                 if(!this->smGoToStart(stamp)) {
@@ -400,6 +402,8 @@ void TrajectoryHandler::stateMachine(const rclcpp::Time& stamp){
                     this->start_time = this->now();
                     this->execution_state = State::EXECUTE;
                 }
+                break;
+
             case State::EXECUTE:
                 this->smOffboardArmed(stamp);
                 if(this->smExecuteTrajectory(stamp)) {
@@ -601,7 +605,7 @@ bool TrajectoryHandler::smExecuteTrajectory(const rclcpp::Time& stamp) {
 
     // Get time elapsed since start of trajectory
     rclcpp::Duration time_elapsed = stamp - this->start_time;
-    double time_elapsed_sec = time_elapsed.seconds();
+    // double time_elapsed_sec = time_elapsed.seconds();
 
     double task_x = this->demands[0][this->current_task_idx];
     double task_y = this->demands[1][this->current_task_idx];
@@ -642,7 +646,8 @@ bool TrajectoryHandler::smExecuteTrajectory(const rclcpp::Time& stamp) {
                     dmsg.actual_arrival_time = this->start_time;
                     this->sync_delay_pub->publish(dmsg);
                     // Caluclate instaneous delay
-                    Duration max_delay = max_element(this->vehicle_delays.begin(), this->vehicle_delays.end())->second;
+                    Duration max_delay = max_element(this->vehicle_delays.begin(), this->vehicle_delays.end(),
+                        [](const auto &x, const auto &y) {return x.second < y.second;})->second;
                     Duration i_delay = max_delay - delay;
                     // Update cumulative delay
                     this->sync_cumulative_delay = this->sync_cumulative_delay + i_delay + delay;
@@ -683,12 +688,12 @@ bool TrajectoryHandler::smExecuteTrajectory(const rclcpp::Time& stamp) {
         this->interpolators.size()>3?this->interpolators[3](interpolator_lookup_time_sec):0.0
     );
 
-    RCLCPP_INFO(this->get_logger(), "Sent request (t=%f) (%f, %f, %f)",
-        time_elapsed_sec,
-        this->vehicle_setpoint->pose.position.x,
-        this->vehicle_setpoint->pose.position.y,
-        this->vehicle_setpoint->pose.position.z
-    );
+    // RCLCPP_INFO(this->get_logger(), "Sent request (t=%f) (%f, %f, %f)",
+    //     time_elapsed_sec,
+    //     this->vehicle_setpoint->pose.position.x,
+    //     this->vehicle_setpoint->pose.position.y,
+    //     this->vehicle_setpoint->pose.position.z
+    // );
 
     return false;
 }

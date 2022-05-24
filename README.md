@@ -4,7 +4,7 @@ This project provides a synchonous simple position trajectory controller for ROS
 
 This package is an extension of the `position_trajectory_controller` (https://github.com/StarlingUAS/position_trajectory_controller) with the new functionality
 
-This package contains the controller `position_trajectory_controller`, a syncrhonisation monitor `sync_monitor`, some `synchronous_msgs` and utilises the `simple_offboard_msgs` from [`simple_offboard`](https://github.com/StarlingUAS/starling_simple_offboard) for backwards compatibility with the [`starling-allocator`](https://github.com/StarlingUAS/starling_allocator) and [`starling-ui-dashly`](https://github.com/StarlingUAS/starling_ui_dashly). 
+This package contains the controller `position_trajectory_controller`, a syncrhonisation monitor `sync_monitor`, some `synchronous_msgs` and utilises the `simple_offboard_msgs` from [`simple_offboard`](https://github.com/StarlingUAS/starling_simple_offboard) for backwards compatibility with the [`starling-allocator`](https://github.com/StarlingUAS/starling_allocator) and [`starling-ui-dashly`](https://github.com/StarlingUAS/starling_ui_dashly).
 
 ## Installation
 ### Pre-requisits
@@ -22,22 +22,22 @@ docker run -it --rm --net=host uobflightlabstarling/position_trajectory_controll
 ### Building the docker container locally
 First you will need to recursively clone the repo into your workspace, cd into the directory and then run `make`:
 ```
-git clone --recursive https://github.com/StarlingUAS/synchronous_position_trajectory_controller.git 
+git clone --recursive https://github.com/StarlingUAS/synchronous_position_trajectory_controller.git
 cd synchronous_position_trajectory_controller
 make
 ```
 
 ### Building Locally
-This library can also be recursively cloned in your local ros2 workspace and built. 
+This library can also be recursively cloned in your local ros2 workspace and built.
 ```
 cd ros_ws/src
-git clone --recursive https://github.com/StarlingUAS/position_trajectory_controller.git 
+git clone --recursive https://github.com/StarlingUAS/position_trajectory_controller.git
 cd ../..
 colcon build --packages-select position_trajectory_controller
 ros2 launch position_trajectory_controller position_trajectory_controller.launch.xml
 ```
 
-A kubernetes daemonset is provided for use with the flight arena. 
+A kubernetes daemonset is provided for use with the flight arena.
 
 ## Running in Simulation
 
@@ -69,7 +69,7 @@ starling install
 First start the simulated cluster (here we start an example with 2 vehicles)
 ```
 starling start kind -n 2
-starling simulator start --load 
+starling simulator start --load
 ```
 
 After locally building the container (running `make`) you will need to upload it to the simulator
@@ -86,7 +86,7 @@ starling utils kind-load mickeyli789/starling-ui-dashly:latest
 
 Finally, you can start this simulation by running
 ```
-starling deploy -f kubernetes 
+starling deploy -f kubernetes
 ```
 
 To stop or restart the simulation, you can run:
@@ -95,13 +95,36 @@ starling deploy -f kubernetes stop
 starling deploy -f kubernetes restart
 ```
 
+Then you can open a browser page at https://localhost:8080 for gazebo and https://localhost:3000 for the user interface page.
+
+You may also want to start the dashboard using the following command which opens on https://localhost:31771
+```
+starling start dashboard
+```
+
+### During the simulation
+
+To get the vehicle to follow a path plan, first go to the user interface webpage and click on `Load Trajectories` in the top right hand corner. This will bring you to a page where you can load a particular trajectory for your vehicles to follow. This page allows you to load single or multiple trajectories (see `help` button for details.)
+
+In the trajectories directory of this repository, there are an number of sample trajectories. You can drag and drop one of the json files within these directories into the select file box of the webpage. This will load up that trajectory, and show it on the right handside.
+
+Clicking confirm & submit will bring up a verifying box. For now please select manual allocation method, and then select which vehicle to allocate to which trajectory. Once happy, please submit and return to control panel. This will submit the trajectories to the allocator, which will then allocate the trajectories directly to the vehicles.
+
+The vehicles will then do the following:
+
+1. Initialise and wait for the Mission Go signal to continue to takeoff
+2. Takeoff to 0.5m above its current location, then wait for Mission Go signal to continue to the start of the trajectory
+3. Vehicle will then fly to the start of the trajectory (may jerk there if it is far away from current location), then wait for Mission Go signal to then start executing the rest of the trajectory in sync.
+4. Vehicle will then automatically land when its trajectory is finished.
+
+
 ## Implementation
 
 ### *position_trajectory_controller* Node
 
 This node is intended to simplify the programming of autonomous drone flight (`OFFBOARD` flight mode). It allows the setting of desired flight tasks and automatically transforms coordinates between frames. It is a high level system for interacting with the flight controller.
 
-With multiple drones, it also attempts to synchronise flight if vehicles start falling behind. 
+With multiple drones, it also attempts to synchronise flight if vehicles start falling behind.
 
 It also intends to simplify the execution of simple trajectory following based tasks.
 
@@ -166,17 +189,20 @@ Once the time elapsed matches the `time_from_start` of the final trajectory poin
 
 ### Synchronisation
 
-It has been noticed that pure open loop path following by multi-drones often leads to drones flying into or close to each other due to lag in following given trajectories. 
+It has been noticed that pure open loop path following by multi-drones often leads to drones flying into or close to each other due to lag in following given trajectories.
 
-Therefore we devise a simple scheme to keep drones relatively in sync by delaying other vehicles when they complete a task. 
+Therefore we devise a simple scheme to keep drones relatively in sync by delaying other vehicles when they complete a task.
 
-1. The vehicle is detected to arrive at its current assigned waypoint. 
-2. If a vehicle detects it is late (with respect to the orignal plan), it will send a delay message to the synchronisation monitor. The sync monitor will forward this delay to be stored by all other vehicles. 
-3. Then the vehicle calculates its 'instantaneous delay' or the amount of time it needs to wait to even out the service. This is defined as the maximum over all vehicles delays minus this vehicles current delay. 
-4. The vehicle then stays at the same waypoint until the calculated time of the vehicles cumulative delays, plus the vehicles instantaneous delay. 
-5. If the delay is completed (i.e. exceeded the delay's wait until time), the vehicle contiues to its next waypoint. 
+1. The vehicle is detected to arrive at its current assigned waypoint.
+2. If a vehicle detects it is late (with respect to the orignal plan), it will send a delay message to the synchronisation monitor. The sync monitor will forward this delay to be stored by all other vehicles.
+3. Then the vehicle calculates its 'instantaneous delay' or the amount of time it needs to wait to even out the service. This is defined as the maximum over all vehicles delays minus this vehicles current delay.
+4. The vehicle then stays at the same waypoint until the calculated time of the vehicles cumulative delays, plus the vehicles instantaneous delay.
+5. If the delay is completed (i.e. exceeded the delay's wait until time), the vehicle contiues to its next waypoint.
 
+The `synchronous_msgs` package contains the following messages on topics to facilitate this synchronisation.
 
+- On a vehicle's delay, it will send a `NotifyDelay` msg to the `/monitor/notify_delay` topic, containing the vehicle name, delay, expected arrival time and actual arrival time.
+- On receipt of a delay, the monitor will then identify live vehicles from broadcast ROS topics, and send a `NotifyPause` message to each vehicles `/<vehicl_id>/notify_pause` topic, containing the delay and the vehicle name causing it.
 
 ## License
 

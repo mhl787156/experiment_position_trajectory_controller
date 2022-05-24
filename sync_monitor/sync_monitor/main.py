@@ -36,9 +36,9 @@ class Monitor(Node):
     def __get_current_vehicle_namespaces(self):
         topic_list = self.get_topic_names_and_types()
         namespaces = set()
-        self.get_logger().info('Found the following topics:')
+        # self.get_logger().info('Found the following topics:')
         for topic_name, _ in topic_list:
-            self.get_logger().info(topic_name)
+            # self.get_logger().info(topic_name)
             if 'mavros' in topic_name:
                 name = topic_name.split('/')[1]
                 if name == 'mavros':
