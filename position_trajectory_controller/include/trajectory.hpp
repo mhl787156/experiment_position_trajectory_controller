@@ -190,6 +190,8 @@ class TrajectoryHandler : public rclcpp::Node
         std::chrono::duration<double> takeoff_timeout;
         std::shared_ptr<rclcpp::Time> land_attempt_start;
         std::chrono::duration<double> land_timeout;
+        std::shared_ptr<rclcpp::Time> gotostart_attempt_start;
+        std::chrono::duration<double> gotostart_timeout;
 
         std::chrono::duration<double> mission_start_receive_timeout;
 
@@ -199,6 +201,11 @@ class TrajectoryHandler : public rclcpp::Node
         std::map<string, rclcpp::Duration> vehicle_delays;
         uint8_t current_task_idx;
         std::shared_ptr<rclcpp::Time> sync_wait_until;
+
+        // Go To Start Interpolator
+        double gotostart_velocity;
+        double time_req;
+        std::vector<_1D::CubicSplineInterpolator<double>> gotostart_interpolators;
 
         // Takeoff and Landing parameters
         double takeoff_height;

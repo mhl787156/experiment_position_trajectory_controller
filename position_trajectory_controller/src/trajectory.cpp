@@ -32,6 +32,7 @@ TrajectoryHandler::TrajectoryHandler() :
     this->get_parameter_or("location_arrival_epsilon", this->location_arrival_epsilon, 0.1); // meters
     this->get_parameter_or("ground_threshold", this->ground_threshold, 0.2); // meters
     this->get_parameter_or("takeoff_height", this->takeoff_height, 1.0); // meters
+    this->get_parameter_or("gotostart_velocity", this->gotostart_velocity, 0.5); // meters
 
     this->get_parameter_or("vehicle_id", this->vehicle_id, string("vehicle"));
     this->get_parameter_or("frame_id", this->frame_id, string("map"));
@@ -45,6 +46,7 @@ TrajectoryHandler::TrajectoryHandler() :
     this->offboard_timeout = this->get_timeout_parameter("offboard_timeout", 20.0);
 	this->land_timeout = this->get_timeout_parameter("land_timeout", 60.0);
     this->takeoff_timeout = this->get_timeout_parameter("takeoff_timeout", 60.0);
+    this->gotostart_timeout = this->get_timeout_parameter("gotostart_timeout", 60.0);
 
     this->mission_start_receive_timeout = this->get_timeout_parameter("mission_start_receive_timeout", 0.5);
 
@@ -180,6 +182,7 @@ void TrajectoryHandler::reset(){
     this->arming_attempt_start = nullptr;
     this->takeoff_attempt_start = nullptr;
     this->land_attempt_start = nullptr;
+    this->gotostart_attempt_start = nullptr;
 
     // Reset Sync
     this->next_delay = std::chrono::duration<double>(0.0);
@@ -202,6 +205,7 @@ void TrajectoryHandler::reset(){
     }
     this->demands.clear();
     this->interpolators.clear();
+    this->gotostart_interpolators.clear();
 
     // Stop Execution Timer
     this->resetExecutionTimer(false);
@@ -388,6 +392,7 @@ void TrajectoryHandler::stateMachine(const rclcpp::Time& stamp){
                 } else if (!this->missionGoPressed(stamp)) {
                     RCLCPP_INFO(this->get_logger(), "Takeoff Complete Waiting on Mission Start");
                 } else {
+                    this->start_time = this->now();
                     this->execution_state = State::GOTOSTART;
                 }
                 break;
@@ -567,18 +572,66 @@ bool TrajectoryHandler::smTakeoffVehicle(const rclcpp::Time& stamp) {
 }
 
 bool TrajectoryHandler::smGoToStart(const rclcpp::Time& stamp) {
+
+    rclcpp::Duration time_elapsed = stamp - this->start_time;
+    double time_elapsed_sec = time_elapsed.seconds();
+
     // Add interpolator here?
+    if (!this->gotostart_attempt_start) {
+        this->gotostart_attempt_start = std::make_shared<rclcpp::Time>(stamp);
+
+        // Vehicle Pose
+        auto pose = this->vehicle_local_position->pose;
+        // Find distance between current location and start location to find time required to traverse at velocity
+        double xcomp = pow(pose.position.x - this->start_trajectory_location.positions[0], 2.0);
+        double ycomp = pow(pose.position.y - this->start_trajectory_location.positions[1], 2.0);
+        double zcomp = pow(pose.position.z - this->start_trajectory_location.positions[2], 2.0);
+        double dist = sqrt(zcomp + xcomp + ycomp);
+        this->time_req = dist / this->gotostart_velocity;
+        vector<double> goto_times{0.0, this->time_req};
+        // Set locations
+        vector<vector<double>> goto_locs;
+        vector<double> xloc{pose.position.x, this->start_trajectory_location.positions[0]};
+        goto_locs.push_back(xloc);
+        vector<double> yloc{pose.position.y, this->start_trajectory_location.positions[1]};
+        goto_locs.push_back(yloc);
+        vector<double> zloc{pose.position.z, this->start_trajectory_location.positions[2]};
+        goto_locs.push_back(zloc);
+        // Initialise interpolator
+        for (std::vector<double> demand: goto_locs) {
+            _1D::CubicSplineInterpolator<double> interp;
+            interp.setData(goto_times, demand);
+            this->gotostart_interpolators.push_back(interp);
+        }
+
+        RCLCPP_INFO(this->get_logger(), "Going to start location (%f, %f, %f) in %f seconds",
+            this->start_trajectory_location.positions[0],
+            this->start_trajectory_location.positions[1],
+            this->start_trajectory_location.positions[2],
+            this->time_req
+        );
+
+    } else if (stamp - *this->gotostart_attempt_start > this->gotostart_timeout) {
+        throw std::runtime_error("Go To Start timeout");
+    }
+
+    if(time_elapsed_sec > this->time_req) {time_elapsed_sec = this->time_req;}
 
     // Publish start position as a setpoint
     this->sendSetpointPositionCoordinate(stamp,
-        this->start_trajectory_location.positions[0],
-        this->start_trajectory_location.positions[1],
-        this->start_trajectory_location.positions[2],
+        this->gotostart_interpolators[0](time_elapsed_sec),
+        this->gotostart_interpolators[1](time_elapsed_sec),
+        this->gotostart_interpolators[2](time_elapsed_sec),
         this->start_trajectory_location.positions.size()>3?this->start_trajectory_location.positions[3]:0.0
     );
 
     // If vehicle near location then reset and return true
-    if(this->vehicleNearLocation(this->vehicle_setpoint->pose)) {
+    if(this->vehicleNearCoordinate(
+            this->start_trajectory_location.positions[0],
+            this->start_trajectory_location.positions[1],
+            this->start_trajectory_location.positions[2])) {
+        this->gotostart_interpolators.clear();
+        this->gotostart_attempt_start = nullptr;
         return true;
     }
 
