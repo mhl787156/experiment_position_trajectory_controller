@@ -674,42 +674,38 @@ bool TrajectoryHandler::smExecuteTrajectory(const rclcpp::Time& stamp) {
             return true;
         }
 
+        // Check if vehicle already waiting
         if(!this->sync_wait_until) {
             Duration planned_arrival_time = Duration::from_seconds(this->times[this->current_task_idx]) + this->sync_cumulative_delay; // In real time
-
-            if (time_elapsed < planned_arrival_time) {
-                //// If arrived according to plan or earlier all ois good continue
-                this->sync_wait_until = std::make_shared<Time>(stamp);
-                RCLCPP_INFO(this->get_logger(), "Reached task idx " + to_string(this->current_task_idx) + " on time");
-            } else {
+            Duration delay = Duration::from_seconds(0.0); // If arrived according to plan or earlier all is good continue
+            if (time_elapsed >= planned_arrival_time) {
                 //// If late, calculate delay to be propogated, send delay to other vehicles. Set own delay
-                // Check if vehicle already waiting
+                //If vehicle is not waiting
+                delay = time_elapsed - planned_arrival_time;
 
-                    //If vehicle is not waiting
-                    Duration delay = time_elapsed - planned_arrival_time;
-                    // Insert or replace with new delay
-                    auto const result = this->vehicle_delays.insert(std::make_pair(this->vehicle_id, delay));
-                    if (not result.second) { result.first->second = delay; }
+                // Insert or replace with new delay
+                auto const result = this->vehicle_delays.insert(std::make_pair(this->vehicle_id, delay));
+                if (not result.second) { result.first->second = delay; }
 
-                    // Send delay to other vehicles
-                    synchronous_msgs::msg::NotifyDelay dmsg;
-                    dmsg.delay = delay;
-                    dmsg.vehicle_id = this->vehicle_id;
-                    dmsg.expected_arrival_time = this->start_time + planned_arrival_time;
-                    dmsg.actual_arrival_time = this->start_time;
-                    this->sync_delay_pub->publish(dmsg);
-                    // Caluclate instaneous delay
-                    Duration max_delay = max_element(this->vehicle_delays.begin(), this->vehicle_delays.end(),
-                        [](const auto &x, const auto &y) {return x.second < y.second;})->second;
-                    Duration i_delay = max_delay - delay;
-                    // Update cumulative delay
-                    this->sync_cumulative_delay = this->sync_cumulative_delay + i_delay + delay;
-                    // Set wait until
-                    this->sync_wait_until = std::make_shared<Time>(stamp + i_delay);
-
-                    RCLCPP_INFO(this->get_logger(), "Reached task idx " + to_string(this->current_task_idx) + " late with delay " + to_string(delay.seconds()) + " i_delay of " + to_string(i_delay.seconds()) + " sent message");
-
+                // Send delay to other vehicles
+                synchronous_msgs::msg::NotifyDelay dmsg;
+                dmsg.delay = delay;
+                dmsg.vehicle_id = this->vehicle_id;
+                dmsg.expected_arrival_time = this->start_time + planned_arrival_time;
+                dmsg.actual_arrival_time = this->start_time;
+                this->sync_delay_pub->publish(dmsg);
             }
+
+            // Calculate instaneous delay
+            Duration max_delay = max_element(this->vehicle_delays.begin(), this->vehicle_delays.end(),
+                [](const auto &x, const auto &y) {return x.second < y.second;})->second;
+            Duration i_delay = max_delay - delay;
+            // Update cumulative delay
+            this->sync_cumulative_delay = this->sync_cumulative_delay + i_delay + delay;
+            // Set wait until
+            this->sync_wait_until = std::make_shared<Time>(stamp + i_delay);
+
+            RCLCPP_INFO(this->get_logger(), "Reached task idx " + to_string(this->current_task_idx) + " with delay " + to_string(delay.seconds()) + " i_delay of " + to_string(i_delay.seconds()) + " sent message");
         }
     }
 
@@ -723,7 +719,7 @@ bool TrajectoryHandler::smExecuteTrajectory(const rclcpp::Time& stamp) {
             double time_left = (*this->sync_wait_until - stamp).seconds();
             // if a delay is required, send the same interpolator time elapsed
             interpolator_lookup_time_sec = interpolator_planned_arrival_time;
-            RCLCPP_INFO(this->get_logger(), "Delaying for another %f seconds, lookup time of %f, planned arrival at %f", time_left, interpolator_planned_arrival_time);
+            RCLCPP_INFO(this->get_logger(), "Delaying for another %f seconds, lookup time of %f, planned arrival at %f", time_left, interpolator_lookup_time_sec, interpolator_planned_arrival_time);
         } else {
             // Otherwise delay completed move onto next task, reset and increase time elapsed
             this->sync_wait_until = nullptr;
@@ -745,12 +741,12 @@ bool TrajectoryHandler::smExecuteTrajectory(const rclcpp::Time& stamp) {
         this->interpolators.size()>3?this->interpolators[3](interpolator_lookup_time_sec):0.0
     );
 
-    RCLCPP_INFO(this->get_logger(), "Sent request (t=%f) (%f, %f, %f)",
-        interpolator_lookup_time_sec,
-        this->vehicle_setpoint->pose.position.x,
-        this->vehicle_setpoint->pose.position.y,
-        this->vehicle_setpoint->pose.position.z
-    );
+    // RCLCPP_INFO(this->get_logger(), "Sent request (t=%f) (%f, %f, %f)",
+    //     interpolator_lookup_time_sec,
+    //     this->vehicle_setpoint->pose.position.x,
+    //     this->vehicle_setpoint->pose.position.y,
+    //     this->vehicle_setpoint->pose.position.z
+    // );
 
     return false;
 }
