@@ -188,6 +188,9 @@ void TrajectoryHandler::reset(){
     this->next_delay = std::chrono::duration<double>(0.0);
     this->sync_cumulative_delay = std::chrono::duration<double>(0.0);
     this->vehicle_delays.clear();
+    Duration delay = Duration::from_seconds(0.0);
+    auto const result = this->vehicle_delays.insert(std::make_pair(this->vehicle_id, delay));
+    if (not result.second) { result.first->second = delay; }
     this->current_task_idx = 0;
     this->sync_wait_until = nullptr;
 
