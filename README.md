@@ -16,7 +16,7 @@ This project uses Starling as its base. Therefore you will need thos prerequisit
 The most straightforward method is using docker in conjunction with the docker-compose scripts in ProjectStarling or Murmuration
 
 ```
-docker run -it --rm --net=host uobflightlabstarling/position_trajectory_controller:latest
+docker run -it --rm --net=host mickeyli789/position_trajectory_controller:latest
 ```
 
 ### Building the docker container locally
@@ -75,7 +75,7 @@ starling simulator start --load
 After locally building the container (running `make`) you will need to upload it to the simulator
 ```
 make
-starling utils kind-load uobflightlabstarling/position-trajectory-controller:latest
+starling utils kind-load mickeyli789/position-trajectory-controller:latest
 ```
 
 Optionally, you can also load in the allocator and the dashboard

@@ -31,7 +31,7 @@ spec:
 
       containers:
       - name: position-trajectory-controller
-        image: uobflightlabstarling/position-trajectory-controller
+        image: mickeyli789/position-trajectory-controller
         imagePullPolicy: Always
         volumeMounts:
         - mountPath: /etc/starling/vehicle.config
@@ -69,7 +69,7 @@ spec:
         effect: NoSchedule
       containers:
       - name: sync-monitor
-        image: uobflightlabstarling/position-trajectory-controller
+        image: mickeyli789/position-trajectory-controller
         imagePullPolicy: Always
         env:
           - name: RUN_MONITOR
