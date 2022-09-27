@@ -3,6 +3,8 @@ import sys
 import os
 import json
 import argparse
+import itertools
+import copy
 
 def main():
 
@@ -15,6 +17,7 @@ def main():
     parser.add_argument('--scale_z', '-sz', type=float, help='Scale only Z points', default=1.0)
     parser.add_argument('--offset_z', '-z', type=float, help='Translate model upwards', default=0.5)
     parser.add_argument('--output_file', '-o', help="Prefix for the output file", default="output")
+    parser.add_argument('--translate_centroids', '-t', help="Translate X,Y centroids for each vehicle", nargs="+")
     args = parser.parse_args()
     print(args)
 
@@ -29,6 +32,7 @@ def main():
     for idx, f in enumerate(os.listdir(full_folder)):
         if 'csv' not in f:
             continue
+        print(f)
         traj = np.genfromtxt(os.path.join(full_folder, f), delimiter=',')
         traj *= args.scale_factor
         traj[:, 0] *= args.scale_x
@@ -52,6 +56,35 @@ def main():
     output_filename = f"{args.output_file}_vel{velocity}.json"
     with open(os.path.join(full_folder, output_filename), 'w') as f:
         json.dump(output, f)
+
+    # Also output a second file with moved centroids for each vehicle
+    if args.translate_centroids is not None:
+
+        if len(args.translate_centroids) != len(output) * 2:
+            print(f"An x, y pair is needed for each vehicle, not enough provided: {args.translate_centroids}")
+            exit()
+
+        centroids = np.reshape([float(x) for x in args.translate_centroids], (-1, 2))
+        print(centroids)
+
+        trans_comb_folder = os.path.join(full_folder, f"translated_combinations_vel{velocity}_{'_'.join(args.translate_centroids)}")
+        try:
+            os.mkdir(trans_comb_folder)
+        except OSError as error:
+            print(error)
+        for idxs in itertools.permutations(range(len(output))):
+            new_output = copy.deepcopy(output)
+            for i, j in enumerate(idxs):
+                noj = copy.deepcopy(output[j])
+                data = np.array(noj['data'])
+                data[:, [1,2]] += centroids[i]
+                new_output[i]["data"] = data.tolist()
+
+            output_filename = f"{'_'.join([f't{i}' for i in idxs])}.json"
+            with open(os.path.join(trans_comb_folder, output_filename), 'w') as f:
+                json.dump(new_output, f)
+            print(f"saved {output_filename}")
+
 
 if __name__=="__main__":
     main()
