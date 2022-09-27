@@ -1,0 +1,7 @@
+string vehicle_id
+
+builtin_interfaces/Duration completed_time_since_start
+
+uint32 task_number
+geometry_msgs/Pose task_location
+geometry_msgs/Pose vehicle_location

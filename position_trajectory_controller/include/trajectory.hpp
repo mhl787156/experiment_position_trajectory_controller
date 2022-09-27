@@ -41,6 +41,7 @@
 
 #include "synchronous_msgs/msg/notify_delay.hpp"
 #include "synchronous_msgs/msg/notify_pause.hpp"
+#include "synchronous_msgs/msg/notify_task_complete.hpp"
 
 #include "mavros_msgs/msg/state.hpp"
 #include "mavros_msgs/msg/position_target.hpp"
@@ -230,6 +231,7 @@ class TrajectoryHandler : public rclcpp::Node
         // Publishers
         rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr       setpoint_position_pub;
         rclcpp::Publisher<synchronous_msgs::msg::NotifyDelay>::SharedPtr       sync_delay_pub;
+        rclcpp::Publisher<synchronous_msgs::msg::NotifyTaskComplete>::SharedPtr       notify_task_complete_pub;
 
         // Subscriptions
         rclcpp::Subscription<std_msgs::msg::Empty>::SharedPtr               mission_start_sub;

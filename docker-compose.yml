@@ -4,43 +4,30 @@ version: '3'
 services:
   simhost: # Must be called simhost
     image: uobflightlabstarling/starling-sim-iris-px4-flightarena:latest
-    command: [ "ros2", "launch", "launch/system.launch.xml" , sim_only:=true]
     ports:
       - "8080:8080"
 
-  # ----------
-    # Spawn Vehicle 1
-  gazebo_spawn_1:
-    image: uobflightlabstarling/starling-sim-iris:latest
-    command: [ "./spawn_iris.sh" ]
-    environment:
-      - "PX4_SIM_HOST=localhost"
-      - "PX4_INSTANCE=0"
-      - "IGNORE_FAILURE=true"
-    depends_on:
-      - simhost
-    pid: "host" # Share Process ID Namespace
-
   sitl:
-    image: uobflightlabstarling/starling-sim-px4-sitl:latest
+    image: uobflightlabstarling/starling-sim-px4-sitl:nightly
     environment:
       - "PX4_SIM_HOST=simhost"
       - "PX4_OFFBOARD_HOST=mavros"
-      - "PX4_INSTANCE=0"
+      - "PX4_SIM_MODEL=iris"
+      - "ENABLE_EXTERNAL_VISION=true" # New to ensure vision
     depends_on:
-      - gazebo_spawn_1
+      - simhost
     ports:
       - "18570:18570/udp"
 
   mavros:
-    image: uobflightlabstarling/starling-mavros:latest
+    image: uobflightlabstarling/starling-mavros:nightly
     command: ros2 launch launch/mavros_bridge.launch.xml
     environment:
       - "MAVROS_TGT_SYSTEM=1"
       - "MAVROS_FCU_IP=0.0.0.0"
       - "MAVROS_GCS_URL=tcp-l://0.0.0.0:5760"
     depends_on:
-      - sitl
+      - simhost
     ports:
       - "5760:5760"
 
@@ -55,4 +42,4 @@ services:
   starling-ui-dashly:
     image: mickeyli789/starling-ui-dashly:latest
     ports:
-      - "3001:3000"
+      - "3000:3000"

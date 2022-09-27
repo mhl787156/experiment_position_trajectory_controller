@@ -20,6 +20,7 @@ find_package(ament_cmake REQUIRED)
 # uncomment the following section in order to fill in
 # further dependencies manually.
 find_package(builtin_interfaces REQUIRED)
+find_package(geometry_msgs REQUIRED)
 
 
 # Build Messages and Services
@@ -28,7 +29,8 @@ find_package(rosidl_default_generators REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/NotifyDelay.msg"
   "msg/NotifyPause.msg"
-  DEPENDENCIES builtin_interfaces
+  "msg/NotifyTaskComplete.msg"
+  DEPENDENCIES builtin_interfaces geometry_msgs
 )
 
 

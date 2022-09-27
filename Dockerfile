@@ -20,9 +20,10 @@ RUN wget https://raw.githubusercontent.com/mavlink/mavros/ros2/mavros/scripts/in
 # Build the package
 RUN . /opt/ros/${ROS_DISTRO}/setup.sh \
     && git clone https://github.com/StarlingUAS/starling_simple_offboard.git /ros_ws/src/simple_offboard \
+    && git clone https://github.com/StarlingUAS/starling_allocator.git /ros_ws/src/starling_allocator \
     && export CMAKE_PREFIX_PATH=$AMENT_PREFIX_PATH:$CMAKE_PREFIX_PATH \
     && cd /ros_ws \
-    && colcon build --packages-select simple_offboard_msgs \
+    && colcon build --packages-select simple_offboard_msgs starling_allocator_msgs\
     && rm -r build
 
 # Build the messages

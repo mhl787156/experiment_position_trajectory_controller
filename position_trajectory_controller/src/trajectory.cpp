@@ -99,6 +99,7 @@ TrajectoryHandler::TrajectoryHandler() :
     // Initialise Publishers
     this->setpoint_position_pub = this->create_publisher<geometry_msgs::msg::PoseStamped>("mavros/setpoint_position/local", 1);
     this->sync_delay_pub = this->create_publisher<synchronous_msgs::msg::NotifyDelay>("/monitor/notify_delay", 1);
+    this->notify_task_complete_pub = this->create_publisher<synchronous_msgs::msg::NotifyTaskComplete>("/monitor/notify_task_complete", 1);
 
     // Initialise Trajectory Service
     this->traj_serv = this->create_service<simple_offboard_msgs::srv::SubmitTrajectory>("submit_trajectory",
@@ -459,10 +460,12 @@ void TrajectoryHandler::stateMachine(const rclcpp::Time& stamp){
 bool TrajectoryHandler::smChecks(const rclcpp::Time& stamp) {
     if(!vehicle_state || stamp - this->last_received_vehicle_state > this->state_timeout) {
         // State timeout
+        RCLCPP_ERROR(this->get_logger(), "Receiving State Timeout");
         return false;
     }
     if(!vehicle_local_position || stamp - this->last_received_vehicle_local_position > this->local_position_timeout) {
         // Local Position Timeout
+        RCLCPP_ERROR(this->get_logger(), "Receiving Local Position Timeout");
         return false;
     }
     return true;
@@ -707,6 +710,17 @@ bool TrajectoryHandler::smExecuteTrajectory(const rclcpp::Time& stamp) {
             this->sync_cumulative_delay = this->sync_cumulative_delay + i_delay + delay;
             // Set wait until
             this->sync_wait_until = std::make_shared<Time>(stamp + i_delay);
+
+            // Notify about current task only once when first arrived (i.e. not waiting)
+            synchronous_msgs::msg::NotifyTaskComplete task_complete_msg;
+            task_complete_msg.vehicle_id = this->vehicle_id;
+            task_complete_msg.completed_time_since_start = time_elapsed;
+            task_complete_msg.task_number = this->current_task_idx;
+            task_complete_msg.task_location.position.x = task_x;
+            task_complete_msg.task_location.position.y = task_y;
+            task_complete_msg.task_location.position.z = task_z;
+            task_complete_msg.vehicle_location = this->vehicle_local_position->pose;
+            this->notify_task_complete_pub->publish(task_complete_msg);
 
             RCLCPP_INFO(this->get_logger(), "Reached task idx " + to_string(this->current_task_idx) + " with delay " + to_string(delay.seconds()) + " i_delay of " + to_string(i_delay.seconds()) + " sent message");
         }

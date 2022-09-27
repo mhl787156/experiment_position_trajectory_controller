@@ -6,15 +6,38 @@ from functools import partial
 import rclpy
 from rclpy.node import Node
 
-from synchronous_msgs.msg import NotifyDelay, NotifyPause
+from std_msgs.msg import Empty, Bool
 
+from synchronous_msgs.msg import NotifyDelay, NotifyPause, NotifyTaskComplete
+from starling_allocator_msgs.msg import Allocations
 
 class Monitor(Node):
 
     def __init__(self):
         super().__init__('sync_monitor')
         self.notify_delay_sub = self.create_subscription(NotifyDelay, '/monitor/notify_delay', self.notify_delay_cb, 10)
+
+        # Mission Monitoring
+        self.mission_start_sub = self.create_subscription(Empty, '/mission_start', self.mission_start_cb, 10)
+        self.mission_abort_sub = self.create_subscription(Empty, '/mission_abort', self.mission_abort_cb, 10)
+        self.emergency_stop_sub = self.create_subscription(Empty, '/emergency_stop', self.mission_abort_cb, 10)
+        self.notify_task_complete_sub = self.create_subscription(NotifyTaskComplete, '/monitor/notify_task_complete', self.notify_task_complete_cb, 10)
+        self.allocation_sub = self.create_subscription(Allocations, '/current_allocated_trajectory', self.current_allocated_trajectory_cb, 10)
+
+        self.mission_complete_pub = self.create_publisher(Bool, '/monitor/mission_complete', 10)
+
+
+        self.reset()      
         self.get_logger().info("Initialised")
+
+    def reset(self):
+        self.mission_in_progress = False
+
+        # Should be a mapping between the vehicle/mavros name
+        # and the list of JointTrajectoryPoints which make up the trajectory
+        self.trajectory_allocations = None
+        self.task_list = []
+        self.task_complete = []
 
     def notify_delay_cb(self, msg):
         self.get_logger().info(f'Delay received from {msg.vehicle_id}, with delay {msg.delay} expected at {msg.expected_arrival_time}, arrived at {msg.actual_arrival_time}')
@@ -32,6 +55,64 @@ class Monitor(Node):
             delay_pub.publish(p_msg)
 
             self.get_logger().info(f'Forwarded pause message to {topic}')
+
+    def mission_start_cb(self, _):
+        self.mission_in_progress = True
+        self.get_logger().info(f"Mission Monitor Starting with task list:\n{self.task_list}")
+        
+    def mission_abort_cb(self, _):
+        self.get_logger().info(f"Mission Monitor Aborting")
+        self.reset()
+
+    def current_allocated_trajectory_cb(self, msg):
+        if self.mission_in_progress:
+            # Dont set anything if in progress
+            return
+        
+        # Merge all allocations to find list of tasks
+        task_set = {}
+        task_id = 0
+        allocs = {alloc.vehicle: [] for alloc in msg.allocation}
+        for alloc in msg.allocation:
+            for points in alloc.trajectory.points:
+                point = points.positions[:3]
+                point = tuple([round(p, 2) for p in point])
+                if point not in task_set:
+                    task_set[point] = task_id
+                    task_id += 1
+                id = task_set[point]
+                allocs[alloc.vehicle].append(id)
+
+        self.task_list = [np.array(p) for p in sorted(task_set, key=task_set.get)]
+        self.task_complete = [False for _ in self.task_list]
+        self.trajectory_allocations = allocs # map vehicle_name to task id
+
+
+    def notify_task_complete_cb(self, msg):
+        tn = msg.task_number
+        tx = round(msg.task_location.position.x, 2)
+        ty = round(msg.task_location.position.y, 2)
+        tz = round(msg.task_location.position.z, 2)
+        task_location = np.array([tx, ty, tz])
+
+        self.get_logger().info(f"Vehicle {msg.vehicle_id} task {msg.task_number} at {task_location} received complete")
+        dist_diff = np.abs(self.task_list - task_location)
+        self.get_logger().info(f"Dist diff: {dist_diff}")
+        task_idx = dist_diff.argmin()
+        task_loc = self.task_list[task_idx]
+
+        if self.task_complete[task_idx]:
+            self.get_logger().info(f"Task {task_idx} at {task_loc} has been revisited")
+        else:
+            self.task_complete[task_idx] = True
+            self.get_logger().info(f"Task {task_idx} at {task_loc} has been notified as complete")
+
+        if all(self.task_complete):
+            bmsg = Bool()
+            bmsg.data = True
+            self.mission_complete_pub.publish(bmsg)
+            self.get_logger().info(f"All tasks have been complete, monitor resetting.")
+            self.mission_abort()
 
     def __get_current_vehicle_namespaces(self):
         topic_list = self.get_topic_names_and_types()
