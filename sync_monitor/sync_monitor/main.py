@@ -27,7 +27,7 @@ class Monitor(Node):
         self.mission_complete_pub = self.create_publisher(Bool, '/monitor/mission_complete', 10)
 
 
-        self.reset()      
+        self.reset()
         self.get_logger().info("Initialised")
 
     def reset(self):
@@ -59,7 +59,7 @@ class Monitor(Node):
     def mission_start_cb(self, _):
         self.mission_in_progress = True
         self.get_logger().info(f"Mission Monitor Starting with task list:\n{self.task_list}")
-        
+
     def mission_abort_cb(self, _):
         self.get_logger().info(f"Mission Monitor Aborting")
         self.reset()
@@ -68,7 +68,7 @@ class Monitor(Node):
         if self.mission_in_progress:
             # Dont set anything if in progress
             return
-        
+
         # Merge all allocations to find list of tasks
         task_set = {}
         task_id = 0
@@ -95,9 +95,9 @@ class Monitor(Node):
         tz = round(msg.task_location.position.z, 2)
         task_location = np.array([tx, ty, tz])
 
-        self.get_logger().info(f"Vehicle {msg.vehicle_id} task {msg.task_number} at {task_location} received complete")
-        dist_diff = np.abs(self.task_list - task_location)
-        self.get_logger().info(f"Dist diff: {dist_diff}")
+        # self.get_logger().info(f"Vehicle {msg.vehicle_id} task {msg.task_number} at {task_location} received complete")
+        dist_diff = np.linalg.norm(self.task_list - task_location, axis=1)
+        # self.get_logger().info(f"Dist diff: {dist_diff}")
         task_idx = dist_diff.argmin()
         task_loc = self.task_list[task_idx]
 
@@ -107,12 +107,13 @@ class Monitor(Node):
             self.task_complete[task_idx] = True
             self.get_logger().info(f"Task {task_idx} at {task_loc} has been notified as complete")
 
+        self.get_logger().info(f"Tasks Complete: {self.task_complete.count(True)}/{len(self.task_complete)}")
         if all(self.task_complete):
             bmsg = Bool()
             bmsg.data = True
             self.mission_complete_pub.publish(bmsg)
             self.get_logger().info(f"All tasks have been complete, monitor resetting.")
-            self.mission_abort()
+            self.mission_abort_cb(None)
 
     def __get_current_vehicle_namespaces(self):
         topic_list = self.get_topic_names_and_types()

@@ -677,6 +677,16 @@ bool TrajectoryHandler::smExecuteTrajectory(const rclcpp::Time& stamp) {
         if (this->current_task_idx >= this->times.size() - 1) {
             // Then stop update loop and exit
             RCLCPP_INFO(this->get_logger(), "Reached final trajectory task");
+            // Notify about current task only once when first arrived (i.e. not waiting)
+            synchronous_msgs::msg::NotifyTaskComplete task_complete_msg;
+            task_complete_msg.vehicle_id = this->vehicle_id;
+            task_complete_msg.completed_time_since_start = time_elapsed;
+            task_complete_msg.task_number = this->current_task_idx;
+            task_complete_msg.task_location.position.x = task_x;
+            task_complete_msg.task_location.position.y = task_y;
+            task_complete_msg.task_location.position.z = task_z;
+            task_complete_msg.vehicle_location = this->vehicle_local_position->pose;
+            this->notify_task_complete_pub->publish(task_complete_msg);
             return true;
         }
 
