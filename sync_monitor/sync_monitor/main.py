@@ -74,6 +74,14 @@ class Monitor(Node):
         self.mission_complete_pub.publish(self.mission_status_msg)
         self.reset()
 
+    def normalise_coordinate(point_array):
+        # Hard code partitioning of centroids
+        if point_array[1] > 1.5:
+            point_array[1] -= 3.0
+        elif point_array[1] < -1.5:
+            point_array[1] += 3.0
+        return point_array
+
     def current_allocated_trajectory_cb(self, msg):
         if self.mission_in_progress:
             # Dont set anything if in progress
@@ -86,7 +94,9 @@ class Monitor(Node):
         for alloc in msg.allocation:
             for points in alloc.trajectory.points:
                 point = points.positions[:3]
+                point = self.normalise_coordinate(point)
                 point = tuple([round(p, 2) for p in point])
+
                 if point not in task_set:
                     task_set[point] = task_id
                     task_id += 1
@@ -116,6 +126,9 @@ class Monitor(Node):
         ty = round(msg.task_location.position.y, 2)
         tz = round(msg.task_location.position.z, 2)
         task_location = np.array([tx, ty, tz])
+
+        # Normalise to center point
+        task_location = self.normalise_coordinate(task_location)
 
         # self.get_logger().info(f"Vehicle {msg.vehicle_id} task {msg.task_number} at {task_location} received complete")
         dist_diff = np.linalg.norm(self.task_list - task_location, axis=1)
