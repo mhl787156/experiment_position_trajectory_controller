@@ -29,8 +29,9 @@ def main():
 
     columns = ["time", "x", "y", "z"]
     output = {}
-
-    for idx, f in enumerate(os.listdir(full_folder)):
+    
+    idx = 0
+    for f in os.listdir(full_folder):
         if 'csv' not in f:
             continue
         print(f)
@@ -58,6 +59,8 @@ def main():
         output[idx] = {}
         output[idx]["columns"] = columns
         output[idx]["data"] =  traj.tolist()
+    
+        idx += 1
 
     output_filename = f"{args.output_file}_vel{velocity}.json"
     with open(os.path.join(full_folder, output_filename), 'w') as f:
