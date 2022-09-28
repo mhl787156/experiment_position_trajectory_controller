@@ -94,7 +94,9 @@ class Monitor(Node):
         for alloc in msg.allocation:
             for points in alloc.trajectory.points:
                 point = points.positions[:3]
+                print(point)
                 point = self.normalise_coordinate(point)
+                print(point)
                 point = tuple([round(p, 2) for p in point])
 
                 if point not in task_set:
