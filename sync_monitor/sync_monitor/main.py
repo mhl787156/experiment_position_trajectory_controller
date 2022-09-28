@@ -43,6 +43,8 @@ class Monitor(Node):
         self.task_list = []
         self.task_complete = []
 
+        self.get_logger().info("Reset Complete")
+
     def notify_delay_cb(self, msg):
         self.get_logger().info(f'Delay received from {msg.vehicle_id}, with delay {msg.delay} expected at {msg.expected_arrival_time}, arrived at {msg.actual_arrival_time}')
 
@@ -67,9 +69,11 @@ class Monitor(Node):
         self.get_logger().info(f"Mission Monitor Starting with task list:\n{self.task_list}")
 
     def mission_abort_cb(self, _):
-        self.get_logger().info(f"Mission Monitor Aborting")
-        self.mission_status_msg.in_progress = False
-        self.mission_complete_pub.publish(self.mission_status_msg)
+        
+        if self.mission_in_progress:
+            self.get_logger().info(f"Mission Monitor Aborting")
+            self.mission_complete_pub.publish(self.mission_status_msg)
+
         self.reset()
 
     def normalise_coordinate(self, point_array):
@@ -144,6 +148,8 @@ class Monitor(Node):
         
         # Set status message
         self.mission_status_msg.task_completed = int(task_idx)
+        self.mission_status_msg.vehicle_id = msg.vehicle_id
+        self.mission_status_msg.vehicle_location = msg.vehicle_location
         self.mission_status_msg.time_elapsed = (current_time - self.mission_start_time).to_msg()
         
         if all(self.task_complete):
@@ -153,8 +159,9 @@ class Monitor(Node):
         
         if self.mission_status_msg.completed:
             self.get_logger().info(f"All tasks have been complete, monitor resetting.")
-            self.mission_abort_pub.publish(Empty()) # Sending abort sigal to all.
             self.mission_abort_cb(None)
+            self.mission_abort_pub.publish(Empty()) # Sending abort sigal to all.
+            
 
     def __get_current_vehicle_namespaces(self):
         topic_list = self.get_topic_names_and_types()
