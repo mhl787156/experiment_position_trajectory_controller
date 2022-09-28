@@ -74,7 +74,7 @@ class Monitor(Node):
         self.mission_complete_pub.publish(self.mission_status_msg)
         self.reset()
 
-    def normalise_coordinate(point_array):
+    def normalise_coordinate(self, point_array):
         # Hard code partitioning of centroids
         if point_array[1] > 1.5:
             point_array[1] -= 3.0
