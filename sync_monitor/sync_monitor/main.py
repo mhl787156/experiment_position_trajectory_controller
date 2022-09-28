@@ -105,7 +105,7 @@ class Monitor(Node):
             a.y = p[1]
             a.z = p[2]
             plocs.append(a)
-        self.mission_status_msg.task_location = plocs
+        self.mission_status_msg.task_locations = plocs
 
 
     def notify_task_complete_cb(self, msg):
