@@ -144,7 +144,7 @@ class Monitor(Node):
         
         # Set status message
         self.mission_status_msg.task_completed = int(task_idx)
-        self.mission_status_msg.time_elapsed = (self.mission_start_time - current_time).to_msg()
+        self.mission_status_msg.time_elapsed = (current_time - self.mission_start_time).to_msg()
         
         if all(self.task_complete):
             self.mission_status_msg.completed = True
