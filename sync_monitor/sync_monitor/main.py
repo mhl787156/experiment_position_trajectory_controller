@@ -7,8 +7,8 @@ import rclpy
 from rclpy.node import Node
 
 from std_msgs.msg import Empty, Bool
-
-from synchronous_msgs.msg import NotifyDelay, NotifyPause, NotifyTaskComplete
+from geometry_msgs.msg import Point
+from synchronous_msgs.msg import NotifyDelay, NotifyPause, NotifyTaskComplete, MissionStatus
 from starling_allocator_msgs.msg import Allocations
 
 class Monitor(Node):
@@ -24,7 +24,7 @@ class Monitor(Node):
         self.notify_task_complete_sub = self.create_subscription(NotifyTaskComplete, '/monitor/notify_task_complete', self.notify_task_complete_cb, 10)
         self.allocation_sub = self.create_subscription(Allocations, '/current_allocated_trajectory', self.current_allocated_trajectory_cb, 10)
 
-        self.mission_complete_pub = self.create_publisher(Bool, '/monitor/mission_complete', 10)
+        self.mission_complete_pub = self.create_publisher(MissionStatus, '/monitor/mission_status', 10)
 
 
         self.reset()
@@ -32,6 +32,7 @@ class Monitor(Node):
 
     def reset(self):
         self.mission_in_progress = False
+        self.mission_start_time = None
 
         # Should be a mapping between the vehicle/mavros name
         # and the list of JointTrajectoryPoints which make up the trajectory
@@ -58,6 +59,7 @@ class Monitor(Node):
 
     def mission_start_cb(self, _):
         self.mission_in_progress = True
+        self.mission_start_time = self.get_clock().now()
         self.get_logger().info(f"Mission Monitor Starting with task list:\n{self.task_list}")
 
     def mission_abort_cb(self, _):
@@ -89,6 +91,8 @@ class Monitor(Node):
 
 
     def notify_task_complete_cb(self, msg):
+        current_time = self.get_clock().now()
+
         tn = msg.task_number
         tx = round(msg.task_location.position.x, 2)
         ty = round(msg.task_location.position.y, 2)
@@ -108,10 +112,28 @@ class Monitor(Node):
             self.get_logger().info(f"Task {task_idx} at {task_loc} has been notified as complete")
 
         self.get_logger().info(f"Tasks Complete: {self.task_complete.count(True)}/{len(self.task_complete)}")
+        
+        mission_status_msg = MissionStatus()
+        mission_status_msg.task_completed = task_idx
+        mission_status_msg.time_elapsed = (self.mission_start_time - current_time).to_msg()
+        mission_status_msg.task_complete = self.task_complete
+        plocs = []
+        for p in self.task_list:
+            a = Point()
+            a.x = p[0]
+            a.y = p[1]
+            a.z = p[2]
+            plocs.append(a)
+        mission_status_msg.task_location = plocs
+        
         if all(self.task_complete):
-            bmsg = Bool()
-            bmsg.data = True
-            self.mission_complete_pub.publish(bmsg)
+            mission_status_msg.completed = True
+        else:
+            mission_status_msg.in_progress = True
+
+        self.mission_complete_pub.publish(mission_status_msg)
+        
+        if mission_status_msg.completed:
             self.get_logger().info(f"All tasks have been complete, monitor resetting.")
             self.mission_abort_cb(None)
 

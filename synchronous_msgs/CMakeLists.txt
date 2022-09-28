@@ -30,6 +30,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/NotifyDelay.msg"
   "msg/NotifyPause.msg"
   "msg/NotifyTaskComplete.msg"
+  "msg/MissionStatus.msg"
   DEPENDENCIES builtin_interfaces geometry_msgs
 )
 
