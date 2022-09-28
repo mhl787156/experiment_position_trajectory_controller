@@ -16,6 +16,7 @@ def main():
     parser.add_argument('--scale_y', '-sy', type=float, help='Scale only Y points', default=1.0)
     parser.add_argument('--scale_z', '-sz', type=float, help='Scale only Z points', default=1.0)
     parser.add_argument('--offset_z', '-z', type=float, help='Translate model upwards', default=0.5)
+    parser.add_argument('--swap_xy', help="Swap X and Y axis",action='store_true')
     parser.add_argument('--output_file', '-o', help="Prefix for the output file", default="output")
     parser.add_argument('--translate_centroids', '-t', help="Translate X,Y centroids for each vehicle", nargs="+")
     args = parser.parse_args()
@@ -34,6 +35,11 @@ def main():
             continue
         print(f)
         traj = np.genfromtxt(os.path.join(full_folder, f), delimiter=',')
+
+        if args.swap_xy:
+            print("Swapping x and y")
+            traj[:, [0, 1]] = traj[:, [1, 0]]
+
         traj *= args.scale_factor
         traj[:, 0] *= args.scale_x
         traj[:, 1] *= args.scale_y
