@@ -68,8 +68,6 @@ class Monitor(Node):
 
     def mission_abort_cb(self, _):
         self.get_logger().info(f"Mission Monitor Aborting")
-        self.mission_abort_pub.publish(Empty())
-        self.mission_complete_pub.publish(self.mission_status_msg)
         self.mission_status_msg.in_progress = False
         self.mission_complete_pub.publish(self.mission_status_msg)
         self.reset()
@@ -94,9 +92,7 @@ class Monitor(Node):
         for alloc in msg.allocation:
             for points in alloc.trajectory.points:
                 point = points.positions[:3]
-                print(point)
                 point = self.normalise_coordinate(point)
-                print(point)
                 point = tuple([round(p, 2) for p in point])
 
                 if point not in task_set:
@@ -157,6 +153,7 @@ class Monitor(Node):
         
         if self.mission_status_msg.completed:
             self.get_logger().info(f"All tasks have been complete, monitor resetting.")
+            self.mission_abort_pub.publish(Empty()) # Sending abort sigal to all.
             self.mission_abort_cb(None)
 
     def __get_current_vehicle_namespaces(self):
