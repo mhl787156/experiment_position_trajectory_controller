@@ -569,8 +569,8 @@ bool TrajectoryHandler::smTakeoffVehicle(const rclcpp::Time& stamp) {
 
     // If vehicle near location then reset and return true
     if(this->vehicleNearLocation(this->takeoff_location->pose)) {
-        this->takeoff_attempt_start = nullptr;
-        this->takeoff_location = nullptr;
+        // this->takeoff_attempt_start = nullptr;
+        // this->takeoff_location = nullptr;
         return true;
     }
 
