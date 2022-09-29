@@ -237,6 +237,8 @@ class TrajectoryHandler : public rclcpp::Node
         rclcpp::Subscription<std_msgs::msg::Empty>::SharedPtr               mission_start_sub;
         rclcpp::Subscription<std_msgs::msg::Empty>::SharedPtr               mission_abort_sub;
         rclcpp::Subscription<std_msgs::msg::Empty>::SharedPtr               estop_sub;
+        rclcpp::Subscription<std_msgs::msg::Empty>::SharedPtr               mission_abort_drone_sub;
+        rclcpp::Subscription<std_msgs::msg::Empty>::SharedPtr               estop_drone_sub;
         rclcpp::Subscription<mavros_msgs::msg::State>::SharedPtr         state_sub;
         rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr                     local_position_sub;
         rclcpp::Subscription<synchronous_msgs::msg::NotifyPause>::SharedPtr                     sync_pause_sub;

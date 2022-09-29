@@ -81,6 +81,22 @@ TrajectoryHandler::TrajectoryHandler() :
             RCLCPP_ERROR(this->get_logger(), "EMERGENCY STOP RECIEVED, Stopping");
         }
         this->emergency_stop();}, sub_opt);
+    
+    this->mission_abort_drone_sub = this->create_subscription<std_msgs::msg::Empty>(
+        "mission_abort", 1, [this](const std_msgs::msg::Empty::SharedPtr s){(void)s;
+        if(!mission_stop_received){
+            this->execution_state = State::STOP;
+            mission_stop_received = true;
+            RCLCPP_INFO(this->get_logger(), "Mission Abort Received, Stopping");
+        }}, sub_opt);
+    this->estop_drone_sub = this->create_subscription<std_msgs::msg::Empty>(
+        "emergency_stop", 1, [this](const std_msgs::msg::Empty::SharedPtr s){(void)s;
+        if(!mission_stop_received){
+            this->execution_state = State::STOP;
+            mission_stop_received = true;
+            RCLCPP_ERROR(this->get_logger(), "THIS VEHICLE EMERGENCY STOP RECIEVED, Stopping");
+        }
+        this->emergency_stop();}, sub_opt);
 
     // Mavros Subscribers
     this->state_sub =   this->create_subscription<mavros_msgs::msg::State>(
