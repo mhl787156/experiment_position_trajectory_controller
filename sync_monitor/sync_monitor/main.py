@@ -66,6 +66,12 @@ class Monitor(Node):
         self.mission_in_progress = True
         self.mission_start_time = self.get_clock().now()
         self.mission_status_msg.in_progress = True
+
+        # Publish initial task locations
+        self.mission_status_msg.time_elapsed = (self.get_clock().now() - self.mission_start_time).to_msg()
+        self.mission_complete_pub.publish(self.mission_status_msg)
+        self.mission_complete_pub.task_locations = []
+
         self.get_logger().info(f"Mission Monitor Starting with task list:\n{self.task_list}")
 
     def mission_abort_cb(self, _):
@@ -151,6 +157,7 @@ class Monitor(Node):
         self.mission_status_msg.vehicle_id = msg.vehicle_id
         self.mission_status_msg.vehicle_location = msg.vehicle_location
         self.mission_status_msg.time_elapsed = (current_time - self.mission_start_time).to_msg()
+        self.mission_status_msg.task_complete = self.task_complete
         
         if all(self.task_complete):
             self.mission_status_msg.completed = True
