@@ -16,6 +16,7 @@ class Monitor(Node):
     def __init__(self):
         super().__init__('sync_monitor')
         self.notify_delay_sub = self.create_subscription(NotifyDelay, '/monitor/notify_delay', self.notify_delay_cb, 10)
+        self.notify_pubs = {}
 
         # Mission Monitoring
         self.mission_start_sub = self.create_subscription(Empty, '/mission_start', self.mission_start_cb, 10)
@@ -26,7 +27,6 @@ class Monitor(Node):
 
         self.mission_complete_pub = self.create_publisher(MissionStatus, '/monitor/mission_status', 10)
         self.mission_abort_pub = self.create_publisher(Empty, '/mission_abort', 10)
-
 
         self.reset()
         self.get_logger().info("Initialised")
@@ -54,12 +54,16 @@ class Monitor(Node):
 
         for vname in self.__get_current_vehicle_namespaces():
             if vname == msg.vehicle_id:
-                continue
+                continue#
+                
+            if vname not in self.notify_pubs:
+                topic = f'/{vname}/notify_pause'
+                delay_pub = self.create_publisher(NotifyPause, topic, 10)
+                self.notify_pubs[vname] = delay_pub
+                self.get_logger().info(f'Created notify pub to {topic}')
 
-            topic = f'/{vname}/notify_pause'
-            delay_pub = self.create_publisher(NotifyPause, topic, 10)
+            delay_pub = self.notify_pubs[vname]
             delay_pub.publish(p_msg)
-
             self.get_logger().info(f'Forwarded pause message to {topic}')
 
     def mission_start_cb(self, _):
@@ -124,7 +128,6 @@ class Monitor(Node):
             a.z = p[2]
             plocs.append(a)
         self.mission_status_msg.task_locations = plocs
-
 
     def notify_task_complete_cb(self, msg):
         current_time = self.get_clock().now()
