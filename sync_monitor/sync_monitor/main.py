@@ -16,7 +16,6 @@ class Monitor(Node):
     def __init__(self):
         super().__init__('sync_monitor')
         self.notify_delay_sub = self.create_subscription(NotifyDelay, '/monitor/notify_delay', self.notify_delay_cb, 10)
-        self.notify_pubs = {}
 
         # Mission Monitoring
         self.mission_start_sub = self.create_subscription(Empty, '/mission_start', self.mission_start_cb, 10)
@@ -36,6 +35,7 @@ class Monitor(Node):
         self.mission_start_time = None
         self.mission_status_msg = MissionStatus()
         self.mission_status_msg.in_progress = False
+        self.notify_pubs = {}
 
         # Should be a mapping between the vehicle/mavros name
         # and the list of JointTrajectoryPoints which make up the trajectory
@@ -54,10 +54,10 @@ class Monitor(Node):
 
         for vname in self.__get_current_vehicle_namespaces():
             if vname == msg.vehicle_id:
-                continue#
-                
+                continue
+
+            topic = f'/{vname}/notify_pause'
             if vname not in self.notify_pubs:
-                topic = f'/{vname}/notify_pause'
                 delay_pub = self.create_publisher(NotifyPause, topic, 10)
                 self.notify_pubs[vname] = delay_pub
                 self.get_logger().info(f'Created notify pub to {topic}')
@@ -129,6 +129,8 @@ class Monitor(Node):
             plocs.append(a)
         self.mission_status_msg.task_locations = plocs
 
+        self.get_logger().info(f"Allocation Received, calculated {len(self.task_list)}")
+
     def notify_task_complete_cb(self, msg):
         current_time = self.get_clock().now()
 
@@ -141,7 +143,7 @@ class Monitor(Node):
         # Normalise to center point
         task_location = self.normalise_coordinate(task_location)
 
-        # self.get_logger().info(f"Vehicle {msg.vehicle_id} task {msg.task_number} at {task_location} received complete")
+        self.get_logger().info(f"Vehicle {msg.vehicle_id} task {msg.task_number} at {task_location} received complete")
         dist_diff = np.linalg.norm(self.task_list - task_location, axis=1)
         # self.get_logger().info(f"Dist diff: {dist_diff}")
         task_idx = dist_diff.argmin()
