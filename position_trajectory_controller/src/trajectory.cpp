@@ -81,7 +81,7 @@ TrajectoryHandler::TrajectoryHandler() :
             RCLCPP_ERROR(this->get_logger(), "EMERGENCY STOP RECIEVED, Stopping");
         }
         this->emergency_stop();}, sub_opt);
-    
+
     this->mission_abort_drone_sub = this->create_subscription<std_msgs::msg::Empty>(
         "mission_abort", 1, [this](const std_msgs::msg::Empty::SharedPtr s){(void)s;
         if(!mission_stop_received){
@@ -382,7 +382,7 @@ void TrajectoryHandler::stateMachine(const rclcpp::Time& stamp){
             this->reset();
             return;
         }
-
+    RCLCPP_INFO(this->get_logger(), "State machine 1");
     try{
 
         // Core saftey checks
@@ -393,12 +393,16 @@ void TrajectoryHandler::stateMachine(const rclcpp::Time& stamp){
             RCLCPP_INFO(this->get_logger(), "State machine checks failed, switching to STOP State");
         }
 
+        RCLCPP_INFO(this->get_logger(), "State machine 2");
+
         switch(this->execution_state) {
             case State::INIT:
                 // Initialisation steps before takeoff and execution
                 if(!checks) {
                     RCLCPP_INFO(this->get_logger(), "Initialisation Waiting on System Checks");
                 } else if (!this->missionGoPressed(stamp)) {
+                    RCLCPP_INFO(this->get_logger(), "State machine 3");
+                    this->flash_leds(102, 178, 255);
                     RCLCPP_INFO(this->get_logger(), "Initialisation Waiting on Mission Start");
                 } else {
                     this->execution_state = State::TAKEOFF;
@@ -410,8 +414,10 @@ void TrajectoryHandler::stateMachine(const rclcpp::Time& stamp){
                 if(!this->smTakeoffVehicle(stamp)) {
                     RCLCPP_INFO(this->get_logger(), "Waiting for Takeoff");
                 } else if (!this->missionGoPressed(stamp)) {
+                    this->flash_leds(255, 128, 0);
                     RCLCPP_INFO(this->get_logger(), "Takeoff Complete Waiting on Mission Start");
                 } else {
+                    this->flash_leds(255, 204, 143);
                     this->start_time = this->now();
                     this->execution_state = State::GOTOSTART;
                 }
@@ -422,8 +428,10 @@ void TrajectoryHandler::stateMachine(const rclcpp::Time& stamp){
                 if(!this->smGoToStart(stamp)) {
                     RCLCPP_INFO(this->get_logger(), "Waiting To Go To Trajectory Start");
                 } else if (!this->missionGoPressed(stamp)) {
+                    this->flash_leds(127, 0, 255);
                     RCLCPP_INFO(this->get_logger(), "At Start Location, Waiting on Mission Start");
                 } else {
+                    this->flash_leds(204, 153, 255);
                     this->start_time = this->now();
                     this->execution_state = State::EXECUTE;
                 }
@@ -865,6 +873,30 @@ void TrajectoryHandler::sendSetpointPositionPose(const rclcpp::Time& stamp, cons
     this->transform_broadcaster->sendTransform(tf);
 }
 
+void TrajectoryHandler::flash_leds(const uint8_t r, const uint8_t g, const uint8_t b) {
+    auto effect = std::make_shared<clover_ros2_msgs::srv::SetLEDEffect::Request>();
+    effect->effect = "blink_fast";
+    effect->r = r;
+    effect->g = g;
+    effect->b = b;
+    effect->duration = 0.5;
+    effect->priority = 3;
+
+    // RCLCPP_INFO(this->get_logger(), "Sending LED request (%u, %u, %u)", r, g, b);
+
+    // while (!this->set_effect_client->wait_for_service(std::chrono::duration<double>(0.5))) {
+    //     if (!rclcpp::ok()) {
+    //         throw std::runtime_error("Interrupted while waiting for set effect service. Exiting.");
+    //     }
+    //     RCLCPP_INFO(this->get_logger(), "service not available, waiting again...");
+    // }
+
+    if(this->set_effect_client->wait_for_service(std::chrono::duration<double>(0.5))) {
+        auto result_future = this->set_effect_client->async_send_request(effect);
+        RCLCPP_INFO(this->get_logger(), "Sent LED request (%u, %u, %u)", r, g, b);
+    }
+
+}
 
 void TrajectoryHandler::printVehiclePosition() {
     RCLCPP_INFO(this->get_logger(),

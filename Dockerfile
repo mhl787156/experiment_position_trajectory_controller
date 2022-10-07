@@ -21,9 +21,11 @@ RUN wget https://raw.githubusercontent.com/mavlink/mavros/ros2/mavros/scripts/in
 RUN . /opt/ros/${ROS_DISTRO}/setup.sh \
     && git clone https://github.com/StarlingUAS/starling_simple_offboard.git /ros_ws/src/simple_offboard \
     && git clone https://github.com/StarlingUAS/starling_allocator.git /ros_ws/src/starling_allocator \
+    ## For LED Msgs
+    && git clone https://github.com/StarlingUAS/clover_ros2_pkgs.git /ros_ws/src/clover_ros2_pkgs \
     && export CMAKE_PREFIX_PATH=$AMENT_PREFIX_PATH:$CMAKE_PREFIX_PATH \
     && cd /ros_ws \
-    && colcon build --packages-select simple_offboard_msgs starling_allocator_msgs\
+    && colcon build --packages-select simple_offboard_msgs starling_allocator_msgs clover_ros2_msgs\
     && rm -r build
 
 # Build the messages

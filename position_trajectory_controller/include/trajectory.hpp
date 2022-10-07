@@ -53,6 +53,8 @@
 #include "mavros_msgs/srv/set_mode.hpp"
 #include "mavros_msgs/srv/command_long.hpp"
 
+#include "clover_ros2_msgs/srv/set_led_effect.hpp"
+
 #include <libInterpolate/Interpolate.hpp>
 #include <libInterpolate/AnyInterpolator.hpp>
 
@@ -151,6 +153,8 @@ class TrajectoryHandler : public rclcpp::Node
         void sendSetpointPositionPose(const rclcpp::Time& stamp, const std::shared_ptr<geometry_msgs::msg::PoseStamped> pose);
         void handleLocalPosition(const geometry_msgs::msg::PoseStamped::SharedPtr s);
 
+        void flash_leds(const uint8_t r, const uint8_t g, const uint8_t b);
+
         void handleNotifyPause(const synchronous_msgs::msg::NotifyPause::SharedPtr msg);
 
         // Mission parameters
@@ -247,6 +251,8 @@ class TrajectoryHandler : public rclcpp::Node
         rclcpp::Client<mavros_msgs::srv::CommandBool>::SharedPtr        mavros_arming_srv;
         rclcpp::Client<mavros_msgs::srv::SetMode>::SharedPtr            mavros_set_mode_srv;
         rclcpp::Client<mavros_msgs::srv::CommandLong>::SharedPtr        mavros_command_srv;
+        // Set Effect Service Client
+        rclcpp::Client<clover_ros2_msgs::srv::SetLEDEffect>::SharedPtr       set_effect_client;
 
         // Service
         rclcpp::Service<simple_offboard_msgs::srv::SubmitTrajectory>::SharedPtr      traj_serv;

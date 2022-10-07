@@ -20,6 +20,7 @@
   <depend>trajectory_msgs</depend>
   <depend>mavros_msgs</depend>
   <depend>simple_offboard_msgs</depend>
+  <depend>clover_ros2_msgs</depend>
   <!-- <depend>mavros_extras</depend> -->
 
   <test_depend>ament_lint_auto</test_depend>
