@@ -60,7 +60,7 @@ TrajectoryHandler::TrajectoryHandler() :
     this->mavros_command_srv = this->create_client<mavros_msgs::srv::CommandLong>("mavros/cmd/command", rmw_qos_profile_services_default, this->callback_group_clients_);
     
     this->set_effect_client = this->create_client<clover_ros2_msgs::srv::SetLEDEffect>("set_effect", rmw_qos_profile_services_default, this->callback_group_clients_);
-    if(this->set_effect_client->wait_for_service(5s)) {
+    if(this->set_effect_client->wait_for_service(10s)) {
         RCLCPP_INFO(this->get_logger(), "LEDs ENABLED");
     } else {
         RCLCPP_INFO(this->get_logger(), "LEDs NOT ENABLED");
