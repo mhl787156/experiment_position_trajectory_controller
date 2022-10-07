@@ -58,6 +58,7 @@ TrajectoryHandler::TrajectoryHandler() :
     this->mavros_arming_srv = this->create_client<mavros_msgs::srv::CommandBool>("mavros/cmd/arming", rmw_qos_profile_services_default, this->callback_group_clients_);
     this->mavros_set_mode_srv = this->create_client<mavros_msgs::srv::SetMode>("mavros/set_mode", rmw_qos_profile_services_default, this->callback_group_clients_);
     this->mavros_command_srv = this->create_client<mavros_msgs::srv::CommandLong>("mavros/cmd/command", rmw_qos_profile_services_default, this->callback_group_clients_);
+    this->set_effect_client = this->create_client<clover_ros2_msgs::srv::SetLEDEffect>("set_effect", rmw_qos_profile_services_default, this->callback_group_clients_);
 
     // Safety Subscribers
     auto sub_opt = rclcpp::SubscriptionOptions();
@@ -882,20 +883,8 @@ void TrajectoryHandler::flash_leds(const uint8_t r, const uint8_t g, const uint8
     effect->duration = 0.5;
     effect->priority = 3;
 
-    // RCLCPP_INFO(this->get_logger(), "Sending LED request (%u, %u, %u)", r, g, b);
-
-    // while (!this->set_effect_client->wait_for_service(std::chrono::duration<double>(0.5))) {
-    //     if (!rclcpp::ok()) {
-    //         throw std::runtime_error("Interrupted while waiting for set effect service. Exiting.");
-    //     }
-    //     RCLCPP_INFO(this->get_logger(), "service not available, waiting again...");
-    // }
-
-    if(this->set_effect_client->wait_for_service(std::chrono::duration<double>(0.5))) {
-        auto result_future = this->set_effect_client->async_send_request(effect);
-        RCLCPP_INFO(this->get_logger(), "Sent LED request (%u, %u, %u)", r, g, b);
-    }
-
+    this->set_effect_client->async_send_request(effect);
+    RCLCPP_INFO(this->get_logger(), "Sent LED request (%u, %u, %u)", r, g, b);
 }
 
 void TrajectoryHandler::printVehiclePosition() {
