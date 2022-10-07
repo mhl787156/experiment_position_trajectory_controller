@@ -383,7 +383,7 @@ void TrajectoryHandler::stateMachine(const rclcpp::Time& stamp){
             this->reset();
             return;
         }
-    RCLCPP_INFO(this->get_logger(), "State machine 1");
+
     try{
 
         // Core saftey checks
@@ -394,15 +394,12 @@ void TrajectoryHandler::stateMachine(const rclcpp::Time& stamp){
             RCLCPP_INFO(this->get_logger(), "State machine checks failed, switching to STOP State");
         }
 
-        RCLCPP_INFO(this->get_logger(), "State machine 2");
-
         switch(this->execution_state) {
             case State::INIT:
                 // Initialisation steps before takeoff and execution
                 if(!checks) {
                     RCLCPP_INFO(this->get_logger(), "Initialisation Waiting on System Checks");
                 } else if (!this->missionGoPressed(stamp)) {
-                    RCLCPP_INFO(this->get_logger(), "State machine 3");
                     this->flash_leds(102, 178, 255);
                     RCLCPP_INFO(this->get_logger(), "Initialisation Waiting on Mission Start");
                 } else {
